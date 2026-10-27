@@ -1,0 +1,241 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* AURORA's effects after the voice: a stereo delay and a reverb with a shimmer, where the CS-80 had a studio's
+ * outboard. Fixed point, the lines in the pool (int16), the controls read from the patch a byte at a time.
+ *   delay    one line, the input the sum of both sides; TIME, FEEDBK (with a one-pole damping in the loop),
+ *            MIX; PING puts the right side on a tap at half the time
+ *   reverb   a feedback delay network of eight lines (a Householder matrix: every line feeds every other),
+ *            two all-pass diffusers on the way in and a 20 ms pre-delay; SIZE is the decay, DAMP a one-pole
+ *            low-pass in every line, MIX; SHIMMER feeds the reverb's own output back in an octave up (a two-head
+ *            granular pitch shifter), the way a shimmer pedal does */
+
+/* ---- the delay */
+#define DLY_LEN 49152u                   /* 1.1 s */
+static int16_t dly_line[DLY_LEN] FM1_POOL;
+static uint32_t dly_w;                               /* the write index, wrapped by a compare (no modulo: the chip has no divider) */
+static int32_t dly_lp;
+static uint32_t dly_wow, dly_flt;
+#if !defined(DINGHY_HOST)
+static uint32_t dly_hot;                             /* writes the line had to clamp: a meter (tests/host.c declares it) */
+#endif                    /* the tape's wow (0.7 Hz) and flutter (6 Hz) phases */
+static int32_t dly_m16, dly_m16_d;                   /* the tape's wander, in 1/16 frames, and its step a frame across the block */
+static inline uint32_t dly_back(uint32_t back) { uint32_t p = dly_w + DLY_LEN - back; return p >= DLY_LEN ? p - DLY_LEN : p; }
+static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place */
+{
+    uint32_t i, time = patch.dly_sync ? sync_dly : DLY_TIME[patch.dly_time], half = time >> 1;
+    int32_t fb = patch.dly_fb * 250, mix = patch.dly_mix * 258, damp = 32767 - patch.dly_damp * 230;
+    int32_t tape = patch.dly_tape, drive = 32767 + tape * 258, m16;
+    if (tape) {                                     /* TAPE: the repeats wander (wow and flutter), darken and saturate */
+        int32_t target;
+        damp -= tape * 120;
+        dly_wow += 68173u * n; dly_flt += 584000u * n;   /* 0.7 Hz and 6 Hz, stepped a block */
+        target = ((sine_i(dly_wow) * 40 + sine_i(dly_flt) * 6) >> 15) * tape / 127 * 16;   /* +-46 frames (1 ms) at full, in 1/16 */
+        dly_m16_d = (target - dly_m16) / (int32_t)n;
+    } else dly_m16 = dly_m16_d = 0;
+    if (damp < 4000) damp = 4000;
+    if (!mix) {                                     /* off: the line keeps filling, so turning MIX up finds a tail */
+        for (i = 0; i < n; i++) { dly_line[dly_w] = (int16_t)clamp((st[2u * i] + st[2u * i + 1u]) >> 1, -32767, 32767); if (++dly_w == DLY_LEN) dly_w = 0; }
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        int32_t in = (st[2u * i] + st[2u * i + 1u]) >> 1;
+        int32_t tap, tap2, back;
+        if (tape) {                                 /* read between frames at the wandering position */
+            uint32_t fr, a, b;
+            dly_m16 += dly_m16_d; m16 = dly_m16 + 32 * 16;   /* kept positive */
+            fr = (uint32_t)m16 & 15u;                    /* (the fraction and the whole frame from the same position: taken a step apart, every crossing jumped a frame) */
+            back = clamp((int32_t)time + (m16 >> 4) - 32, 2, (int32_t)DLY_LEN - 2);   /* (the wander kept inside the line at the extremes) */
+            a = dly_back((uint32_t)back); b = dly_back((uint32_t)back + 1u);
+            tap = dly_line[a] + (((dly_line[b] - dly_line[a]) * (int32_t)fr) >> 4);
+            if (patch.dly_ping) { back = clamp((int32_t)half + (m16 >> 4) - 32, 2, (int32_t)DLY_LEN - 2); a = dly_back((uint32_t)back); b = dly_back((uint32_t)back + 1u); tap2 = dly_line[a] + (((dly_line[b] - dly_line[a]) * (int32_t)fr) >> 4); }
+            else tap2 = tap;
+        } else {
+            tap = dly_line[dly_back(time)];
+            tap2 = patch.dly_ping ? dly_line[dly_back(half)] : tap;
+        }
+        dly_lp += mulq15r(tap - dly_lp, damp);      /* the loop's damping (rounded: no DC limit cycle) */
+        { int32_t f = mulq15r(dly_lp, fb);
+          if (tape) f = softclip(mulq15(f, drive)) - mulq15(softclip(mulq15(f, drive)), tape * 100);   /* saturates, then a little less level */
+          if (in + f > 32767 || in + f < -32767) dly_hot++;
+          dly_line[dly_w] = (int16_t)clamp(in + f, -32767, 32767); }
+        if (++dly_w == DLY_LEN) dly_w = 0;
+        st[2u * i] += mulq15(tap, mix);
+        st[2u * i + 1u] += mulq15(tap2, mix);
+    }
+}
+
+/* ---- the reverb */
+/* ---- the phaser: six first-order allpasses a side swept by one LFO (the right side a quarter turn behind), feedback
+ * round the chain, dry and wet summed. The sweep's coefficient comes from PH_A (100 Hz .. 5 kHz) once a block and
+ * slides across it. After the delay, before the reverb. */
+static int32_t ph_x[2][6], ph_y[2][6], ph_last[2], ph_a[2], ph_a_d[2];
+static uint32_t ph_lfo;
+static void fx_phaser(int32_t *st, uint32_t n)
+{
+    uint32_t i, k, c;
+    int32_t mix = patch.ph_mix * 258, fb = patch.ph_fb * 180, depth = patch.ph_depth;
+    if (!mix) return;
+    ph_lfo += LFO_INC[(patch.ph_rate * 3u) >> 2] * (n / CTL);   /* 0.1 .. ~9 Hz, a block at a time */
+    for (c = 0; c < 2u; c++) {
+        int32_t lfo = sine_i(ph_lfo + (c ? 0x40000000u : 0u)), idx = 64 + ((lfo * depth) >> 16), a1;
+        a1 = PH_A[clamp(idx, 0, 127)];
+        ph_a_d[c] = (a1 - ph_a[c]) / (int32_t)n;
+    }
+    for (i = 0; i < n; i++) {
+        for (c = 0; c < 2u; c++) {
+            int32_t in = st[2u * i + c], x = clamp(in + mulq15(ph_last[c], fb), -60000, 60000), a = ph_a[c];
+            for (k = 0; k < 6u; k++) {               /* y = -a x + x1 + a y1; the states held under 60000: a Q15 product of more wraps */
+                int32_t y = clamp(-mulq15(x, a) + ph_x[c][k] + mulq15(ph_y[c][k], a), -60000, 60000);
+                ph_x[c][k] = x; ph_y[c][k] = y; x = y;
+            }
+            ph_last[c] = x;
+            ph_a[c] += ph_a_d[c];
+            st[2u * i + c] = in + mulq15(x, mix);
+        }
+    }
+}
+
+/* ---- the reverb: a plate after Dattorro (1997), in fixed point. The input is diffused by four allpasses and fed to
+ * two cross-coupled tanks, each a slowly modulated allpass, a delay, the damping low-pass, an allpass and a delay,
+ * with the decay applied twice round; the output is Dattorro's seven taps a side. SIZE is the decay time (0.5 .. 25 s),
+ * the input is scaled by the loss so a held chord sits at one level whatever the SIZE. Lengths are Dattorro's at
+ * 29.8 kHz scaled to 44.1 kHz. */
+#define RV_MOD 24                                   /* the tank allpasses wander +-24 frames (Dattorro's 16 at 29.8 kHz) */
+#define RV_AP0_L 995u
+#define RV_AP0_R 1345u
+#define RV_D1_L 6590u
+#define RV_D1_R 5505u
+#define RV_AP1_L 2664u
+#define RV_AP1_R 3931u
+#define RV_D2_L 4681u
+#define RV_D2_R 6241u
+static int16_t rv_pre[1024] FM1_POOL;               /* the pre-delay: 20 ms */
+static int32_t rv_in1[210] FM1_POOL, rv_in2[158] FM1_POOL, rv_in3[561] FM1_POOL, rv_in4[410] FM1_POOL;   /* input diffusion, at the signal's scale */
+static int32_t rv_ap0l[RV_AP0_L + 64u] FM1_POOL, rv_ap0r[RV_AP0_R + 64u] FM1_POOL;   /* the tanks: 32 bits at Q4 (sixteen times the signal) */
+static int32_t rv_d1l[RV_D1_L] FM1_POOL, rv_d1r[RV_D1_R] FM1_POOL;
+static int32_t rv_ap1l[RV_AP1_L] FM1_POOL, rv_ap1r[RV_AP1_R] FM1_POOL;
+static int32_t rv_d2l[RV_D2_L] FM1_POOL, rv_d2r[RV_D2_R] FM1_POOL;
+#define SH_LEN 8192u                     /* the shimmer's grain: 186 ms, two heads half a grain apart */
+static int16_t sh_line[SH_LEN] FM1_POOL;
+static uint32_t rv_w, sh_w, sh_ph, rv_lfo[2];   /* sh_ph: the heads' position behind the write, in 1/256 frame */
+static int32_t rv_m16[2];                            /* the tank allpasses' modulation this block, in 1/16 frames (stepped once a block) */
+static uint32_t rv_wi[4], rv_wap0[2], rv_wd1[2], rv_wap1[2], rv_wd2[2];   /* each buffer's write index */
+static int32_t rv_bw, rv_lpl, rv_lpr, rv_fbl, rv_fbr;   /* the input bandwidth, the two dampers, the cross-feeds */
+static int32_t rv_dcxl, rv_dcyl, rv_dcxr, rv_dcyr;   /* the output DC blockers' last input and output */
+static int32_t sh_fb, sh_lp;                        /* the shimmer's last sample, low-passed, into the next input */
+#if !defined(DINGHY_HOST) && !defined(DINGHY_WEB)
+static uint32_t rv_hot;                             /* samples a tank ran far beyond a chord's level: a meter (tests/fake_fm1.h) */
+#define dbg_meter(k, p, n) ((void)0)
+#endif
+
+/* every buffer keeps its own write index and wraps by a compare: no modulo (the chip has no divider). The tanks are
+ * 32-bit at Q4 (sixteen times the signal): the 16-bit tanks at an eighth of the signal truncated on every pass, and
+ * the recirculated rounding was a hiss under every tail */
+static inline uint32_t wrap_back(uint32_t w, uint32_t len, uint32_t back) { uint32_t p = w + len - back; return p >= len ? p - len : p; }
+/* a x b / 32768 for |a| up to 2^23 (a Q2 tank value), toward zero: two products, neither can wrap */
+static inline int32_t mulq15w(int32_t a, int32_t b)
+{
+    int32_t neg = (a < 0) != (b < 0), ua = a < 0 ? -a : a, ub = b < 0 ? -b : b;
+    int32_t r = ((ua >> 8) * ub >> 7) + (((ua & 255) * ub) >> 15);
+    return neg ? -r : r;
+}
+static inline int32_t allpass32(int32_t *z, uint32_t len, uint32_t *w, int32_t x, int32_t g)   /* the lattice form: unity gain at every frequency */
+{
+    int32_t d = z[*w], v = x + mulq15w(d, g);
+    z[*w] = v;
+    if (++*w == len) *w = 0;
+    return d - mulq15w(v, g);
+}
+/* the modulated allpass: its delay wanders RV_MOD either side of len, read between frames; the buffer is len + 64 */
+static inline int32_t allpass_mod(int32_t *z, uint32_t len, uint32_t *w, int32_t x, int32_t g, uint32_t m16)
+{
+    uint32_t size = len + 64u, dl = len - RV_MOD + (m16 >> 4), pa = wrap_back(*w, size, dl), pb = pa ? pa - 1u : size - 1u;
+    int32_t a = z[pa], b = z[pb];
+    int32_t d = a + (((b - a) >> 4) * (int32_t)(m16 & 15u)), v = x + mulq15w(d, g);
+    z[*w] = v;
+    if (++*w == size) *w = 0;
+    return d - mulq15w(v, g);
+}
+/* a delay line: write the new frame, return the oldest (len frames ago) */
+static inline int32_t delay32(int32_t *z, uint32_t len, uint32_t *w, int32_t x)
+{
+    int32_t d = z[*w];
+    z[*w] = x;
+    if (++*w == len) *w = 0;
+    return d;
+}
+#define TAP(z, len, w, back) ((z)[wrap_back((w), (len), (back))])
+
+static void fx_reverb(const int32_t *st, int32_t *wet, uint32_t n)   /* st: L R ... in; wet: L R ... out (the wet alone) */
+{
+    uint32_t i;
+    int32_t decay = PLATE_D[patch.rv_size], mix = patch.rv_mix * 258, damp = 32767 - patch.rv_damp * 150;
+    int32_t shim = patch.rv_shim * 240;          /* 0 .. 0.93 of the loop's unity gain (below) */
+    int32_t in_g;
+    if (!mix && !shim) { for (i = 0; i < 2u * n; i++) wet[i] = 0; return; }
+    /* a sustained input builds up ~1 / (1 - decay) in the tanks: the input is scaled by the loss so a held chord sits
+     * at the same level whatever the SIZE (a tail then starts quieter the longer it is to last) */
+    in_g = clamp((32768 - decay) * 7, 0, 32767);
+    shim = mulq15(shim, in_g);                        /* the shimmer's injection, scaled the same way */
+    if (shim > 8500) shim = 8500;                     /* and never past 0.35: short tails would ring otherwise */
+    rv_lfo[0] += 97391u * n; rv_lfo[1] += 68173u * n;   /* 1.0 Hz and 0.7 Hz, stepped a block at a time (5.8 ms) */
+    rv_m16[0] = (int32_t)((uint32_t)(sine_i(rv_lfo[0]) + 32768) * (RV_MOD * 2u * 16u) >> 16);   /* 0 .. 2 RV_MOD, 1/16 frames */
+    rv_m16[1] = (int32_t)((uint32_t)(sine_i(rv_lfo[1]) + 32768) * (RV_MOD * 2u * 16u) >> 16);
+    for (i = 0; i < n; i++) {
+        int32_t in = mulq15((st[2u * i] + st[2u * i + 1u]) >> 1, in_g), x, tl, tr, l, r;
+        uint32_t ml, mr;
+        if (shim) {
+            sh_lp += (sh_fb - sh_lp) >> 2;               /* ~2.5 kHz: the octaves stack up softly */
+            in += softclip(mulq15(sh_lp, shim));         /* and the loop can never run away: the feedback saturates */
+        }
+        rv_pre[rv_w & 1023u] = (int16_t)clamp(in, -32767, 32767);
+        x = rv_pre[(rv_w - 882u) & 1023u];           /* 20 ms later */
+        rv_bw += mulq15r(x - rv_bw, 26000);           /* the input bandwidth: ~9 kHz */
+        x = allpass32(rv_in1, 210u, &rv_wi[0], rv_bw, 24576);   /* 0.75, 0.75, 0.625, 0.625 */
+        x = allpass32(rv_in2, 158u, &rv_wi[1], x, 24576);
+        x = allpass32(rv_in3, 561u, &rv_wi[2], x, 20480);
+        x = allpass32(rv_in4, 410u, &rv_wi[3], x, 20480);
+        x <<= 4;                                     /* into the tanks' Q4 */
+        /* the two tanks, each fed by the input plus the other's end */
+        ml = (uint32_t)rv_m16[0]; mr = (uint32_t)rv_m16[1];
+        /* the taps are read before this frame's writes move the indices (Dattorro's nodes, scaled) */
+        l = TAP(rv_d1r, RV_D1_R, rv_wd1[1], 394u) + TAP(rv_d1r, RV_D1_R, rv_wd1[1], 4401u) - TAP(rv_ap1r, RV_AP1_R, rv_wap1[1], 2831u)
+          + TAP(rv_d2r, RV_D2_R, rv_wd2[1], 2954u) - TAP(rv_d1l, RV_D1_L, rv_wd1[0], 2945u) - TAP(rv_ap1l, RV_AP1_L, rv_wap1[0], 277u)
+          - TAP(rv_d2l, RV_D2_L, rv_wd2[0], 1578u);
+        r = TAP(rv_d1l, RV_D1_L, rv_wd1[0], 522u) + TAP(rv_d1l, RV_D1_L, rv_wd1[0], 5368u) - TAP(rv_ap1l, RV_AP1_L, rv_wap1[0], 1817u)
+          + TAP(rv_d2l, RV_D2_L, rv_wd2[0], 3956u) - TAP(rv_d1r, RV_D1_R, rv_wd1[1], 3124u) - TAP(rv_ap1r, RV_AP1_R, rv_wap1[1], 496u)
+          - TAP(rv_d2r, RV_D2_R, rv_wd2[1], 179u);
+        tl = allpass_mod(rv_ap0l, RV_AP0_L, &rv_wap0[0], x + rv_fbr, -22938, ml);   /* -0.7 */
+        tr = allpass_mod(rv_ap0r, RV_AP0_R, &rv_wap0[1], x + rv_fbl, -22938, mr);
+        tl = delay32(rv_d1l, RV_D1_L, &rv_wd1[0], tl);
+        tr = delay32(rv_d1r, RV_D1_R, &rv_wd1[1], tr);
+        rv_lpl += mulq15w(tl - rv_lpl, damp);        /* the damping, then the decay */
+        rv_lpr += mulq15w(tr - rv_lpr, damp);
+        tl = mulq15w(rv_lpl, decay);
+        tr = mulq15w(rv_lpr, decay);
+        tl = allpass32(rv_ap1l, RV_AP1_L, &rv_wap1[0], tl, 16384);   /* 0.5 */
+        tr = allpass32(rv_ap1r, RV_AP1_R, &rv_wap1[1], tr, 16384);
+        tl = delay32(rv_d2l, RV_D2_L, &rv_wd2[0], tl);
+        tr = delay32(rv_d2r, RV_D2_R, &rv_wd2[1], tr);
+        if (tl > 7000000 || tl < -7000000 || tr > 7000000 || tr < -7000000) rv_hot++;   /* near the wide multiply's limit (2^23): a meter */
+        rv_fbl = mulq15w(tl, decay);                 /* into the other tank next frame */
+        rv_fbr = mulq15w(tr, decay);
+        rv_w++;
+        { int32_t l2 = (l * 3 + r) >> 7, r2 = (r * 3 + l) >> 7; l = l2; r = r2; }   /* 0.375 with a quarter of each in the other (wide, mono-safe), out of Q4 */
+        { int32_t yl = ((l - rv_dcxl) << 6) + rv_dcyl - leak10(rv_dcyl), yr = ((r - rv_dcxr) << 6) + rv_dcyr - leak10(rv_dcyr);   /* DC blockers, ~7 Hz, state in 1/64 */
+          rv_dcxl = l; rv_dcyl = yl; l = yl >> 6; rv_dcxr = r; rv_dcyr = yr; r = yr >> 6; }
+        l = soft_knee(l, 20000); r = soft_knee(r, 20000);   /* a loud wash bends rather than slams the master knee */
+        if (shim) {                                  /* the shimmer: the output an octave up, back to the input */
+            int32_t m = (l + r) >> 1, a, b, wa, fr = (int32_t)(sh_ph & 255u);
+            uint32_t da = sh_ph >> 8, db = (da + SH_LEN / 2u) & (SH_LEN - 1u);   /* two heads, half a grain apart */
+            sh_line[sh_w & (SH_LEN - 1u)] = (int16_t)clamp(m, -32767, 32767);
+            a = sh_line[(sh_w - da) & (SH_LEN - 1u)]; a += ((sh_line[(sh_w - da - 1u) & (SH_LEN - 1u)] - a) * fr) >> 8;
+            b = sh_line[(sh_w - db) & (SH_LEN - 1u)]; b += ((sh_line[(sh_w - db - 1u) & (SH_LEN - 1u)] - b) * fr) >> 8;
+            wa = (32767 - sine_i((da << 19) + 0x40000000u)) >> 1;   /* a raised cosine over the grain: the two sum to one */
+            sh_fb = mulq15(a, wa) + mulq15(b, 32767 - wa);
+            sh_ph = (sh_ph + (SH_LEN << 8) - SHIFT_INC[patch.rv_shift > 24u ? 24u : patch.rv_shift]) & ((SH_LEN << 8) - 1u);   /* the heads run ahead: the interval */
+            sh_w++;
+        }
+        wet[2u * i] = mulq15(l, mix);
+        wet[2u * i + 1u] = mulq15(r, mix);
+    }
+}

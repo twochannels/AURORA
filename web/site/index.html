@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AURORA: an ambient instrument for the M-VAVE FM-1</title>
+<meta name="description" content="AURORA turns the M-VAVE FM-1 into an ambient texture instrument: a wide spectral pad that keeps moving on its own, a plate with a shimmer, a tape delay, and eight macros over MIDI. A sound module for a dawless rig.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1><a href="./">AURORA</a></h1>
+    <p>an ambient instrument for the M-VAVE FM-1</p>
+    <nav><a href="install.html">Install</a><a href="emu/">Play it</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
+  </header>
+
+  <p class="lead">A custom firmware for the M-VAVE FM-1: big, wide sounds that keep moving on their own and bend to MIDI.</p>
+  <p class="lead">A pad of sine partials that tilts, spreads and drifts; a plate that goes on for ever, with a shimmer; a tape delay; and the Circuit Tracks' eight macros as eight named controls. A sound module for playing, not a groovebox: your sequencer sequences, AURORA sounds.</p>
+  <p class="aside">Early days: this is the first build. The spectral pad, the plate, the delay and the phaser are in; the swarm and air layers, the full movement matrix, freeze and scenes are on the way.</p>
+  <p><a class="try" href="emu/">Play it in your browser</a></p>
+
+  <h2 id="what">What is in it</h2>
+  <ul>
+    <li><b>The pad.</b> Eight voices of twelve sine partials. TILT sets how fast the partials fall off, SPREAD balances odd against even partials from hollow to full, BRIGHT is a ceiling they fade under, and BLOOM staggers their entry so a chord opens slowly.</li>
+    <li><b>Movement.</b> Every voice wanders on its own: a slow drift of the tilt at RATE, scaled by MOVE, and a random walk on every partial, scaled by DRIFT. Nothing sits still unless you tell it to.</li>
+    <li><b>Width.</b> Odd partials lean left, even right, by WIDTH. Mono-safe.</li>
+    <li><b>Space.</b> A Dattorro plate with a shimmer at any interval, a tape delay that syncs to MIDI clock, and a phaser.</li>
+    <li><b>Expression.</b> CC 80 to 87, the Circuit Tracks' macro knobs, are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE and BLOOM. Channel pressure or an expression CC swells the pad open. PLAY latches a drone with no hands on the keys.</li>
+  </ul>
+
+  <h2 id="install">Install</h2>
+  <p>From the <a href="install.html">install page</a> in Chrome or Edge, with the FM-1 on its USB cable, or from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>. The rescue, holding OCT− at power-on, is always there, and the official firmware and any other custom firmware install over AURORA the same way.</p>
+
+  <h2 id="rig">In a dawless rig</h2>
+  <p>Plug the sequencer's MIDI out into the FM-1's TRS jack (the FM-1 is TRS type A). Set the channel on the MIDI page, or leave it at OMNI. Hold chords from the sequencer, send the macros from its knobs, and let the movement do the rest.</p>
+
+  <h2 id="credits">Credits and licence</h2>
+  <p>AURORA is by twochannels, GPL-3.0, on the same platform as <a href="https://github.com/twochannels/CS-1">CS-1</a>: Dinghy (Sven Trogus), with Felucca and SLOOP's hardware layer (Leo Kuroshita, Hügelton Instruments), FM-106's dual-core worker (PattF), and Felucca's web installer.</p>
+  <footer><small>M-VAVE and FM-1 are their owners' marks. AURORA is not made or endorsed by any of them.</small></footer>
+</main>
+</body>
+</html>

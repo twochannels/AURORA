@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install AURORA</title>
+<meta name="description" content="Install AURORA on an M-VAVE FM-1 from the browser, over USB.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+  .pkg { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: center; }
+  .pkg b { font-family: "Barlow Semi Condensed", sans-serif; font-size: 1.2rem; }
+  .go { font: 600 1.15rem "Barlow Semi Condensed", sans-serif; letter-spacing: .04em; padding: .7em 1.6em; background: var(--accent); color: #1b1205; border: 0; border-radius: 999px; cursor: pointer; }
+  .go[disabled] { opacity: .5; cursor: default; }
+  progress { width: 100%; height: 8px; margin: 1rem 0 .5rem; accent-color: var(--accent); }
+  #log { font: .9rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; background: var(--panel); color: #e8e4dc; padding: .8rem 1rem; border-radius: 8px; min-height: 3.5rem; }
+  #log .err { color: #ff9a7a; }
+  #log .ok { color: #9ee493; }
+  .steps li { margin: .3rem 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><a href="./">AURORA</a></h1>
+    <p>install it on your FM-1, from this page</p>
+    <nav><a href="./">About</a><a href="emu/">Play it</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
+  </header>
+
+  <p class="note">Installing any custom firmware on the FM-1 is at your own risk. If anything goes wrong, the rescue is always there: hold <b>OCT−</b> while switching the FM-1 on and it starts in a USB update mode from which any installer, this one included, works again.</p>
+
+  <h2 id="need">What you need</h2>
+  <ul class="steps">
+    <li><b>Chrome or Edge</b> on a computer. The page talks to the FM-1 over Web MIDI, which Safari and Firefox do not offer.</li>
+    <li>A <b>USB data cable</b> (some charging cables carry no data) and the FM-1 switched on.</li>
+    <li><b>No other program using the FM-1's MIDI port</b>: close your DAW, and close the <a href="emu/">emulator</a> tab if you had the FM-1 selected there.</li>
+    <li>The browser will ask to allow MIDI with system exclusive messages. Say yes; that is how the update travels.</li>
+  </ul>
+
+  <h2 id="package">The package</h2>
+  <div class="card">
+    <div class="pkg">
+      <div><b id="pkgname">AURORA for the FM-1</b><br><span id="pkginfo" class="muted">loading the package…</span></div>
+      <label>…or another <code>.fwsc</code>: <input id="file" type="file" accept=".fwsc"></label>
+    </div>
+  </div>
+
+  <h2 id="go">Install</h2>
+  <p>Plug the FM-1 in, switch it on, then press the button and leave the cable alone until the page says it is done. The FM-1 checks the package, restarts into its update mode, writes the firmware (about a minute), and restarts again running AURORA. Your user presets stay where they were, unless the release notes say the sound format changed, in which case the bank starts empty once.</p>
+  <p><button class="go" id="install" disabled>Install on the FM-1</button></p>
+  <progress id="bar" max="100" value="0" hidden></progress>
+  <div id="log">Waiting.</div>
+
+  <h2 id="trouble">If it stops</h2>
+  <ul>
+    <li><b>"FM-1 not found"</b>: check the cable, that nothing else holds the port, and that you allowed MIDI when asked. Reload the page and try again.</li>
+    <li><b>It stopped while writing</b>: the FM-1 stays in update mode until the write is complete. Replug the cable and press Install again; the page notices the update mode and finishes the write.</li>
+    <li><b>It does not come back</b>: switch it off and on. If it then shows nothing, hold OCT− while switching on and install again.</li>
+  </ul>
+
+  <h2 id="back">Going back, or on to another firmware</h2>
+  <p>Install the next firmware the way you installed this one: from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>, from that firmware's own installer, or with M-VAVE's updater. AURORA accepts a package that brings Felucca's update loader, which nearly every custom firmware does, and one that brings M-VAVE's own, which the official V15 and firmwares built on it do. The hub's "Back to official V15" works from AURORA 0.3.2 on; before that, AURORA refused the official package on any unit whose first 16 KB of flash were older than V15's, and the screen only flickered. If AURORA refuses a package now, the screen says why for three seconds. </p>
+  <p>The command-line route still works too: <code>python3 tools/fm1_install.py aurora.fwsc</code> from the source tree, with Python 3, <code>mido</code> and <code>python-rtmidi</code>.</p>
+
+  <footer><small>The installer is Felucca's <code>fm1ota.js</code> by Leo Kuroshita (Hügelton Instruments), GPL-3.0. AURORA is GPL-3.0; M-VAVE and FM-1 are their owners' marks, CS-80 is Yamaha's.</small></footer>
+</main>
+<script type="module">
+import { Updater } from "./fm1ota.js";
+const $ = (id) => document.getElementById(id);
+const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
+function productOf(raw) {            // the package identity: one marker byte after each of the first 20 blocks
+  let s = "";
+  for (let i = 0; i < BLOCKS; i++) { const m = raw[i * BLK + KEEP]; if (m !== 0x7D) s += String.fromCharCode((m - i - 1) & 0xFF); }
+  return s;
+}
+function logicalImage(raw) {         // the image the device reads: the package without the 20 marker bytes
+  const out = new Uint8Array(raw.length - BLOCKS);
+  let o = 0;
+  for (let i = 0; i < BLOCKS; i++) { out.set(raw.subarray(i * BLK, i * BLK + KEEP), o); o += KEEP; }
+  out.set(raw.subarray(BLOCKS * BLK), o);
+  return out;
+}
+let pkg = null;                      // { product, image, label }
+function setPackage(raw, label) {
+  if (raw.length < BLOCKS * BLK) throw new Error("not an FM-1 package (too short)");
+  const product = productOf(raw);
+  if (!/^[^_]+_\d+$/.test(product)) throw new Error("not an FM-1 package");
+  const hasLoader = new TextDecoder("latin1").decode(raw).includes("FELUCCA-LOADER-1");
+  if (!hasLoader) throw new Error("this package has no update loader this page can drive (a stock package? use the Firmware Hub)");
+  pkg = { product, image: logicalImage(raw), label };
+  $("pkginfo").textContent = `${label}: identity ${product}, ${(raw.length / 1024).toFixed(0)} KB`;
+  $("install").disabled = false;
+}
+function log(msg, cls) { const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = msg; const l = $("log"); if (l.textContent === "Waiting.") l.textContent = ""; l.appendChild(d); l.scrollTop = l.scrollHeight; }
+fetch("firmware/aurora.fwsc").then((r) => { if (!r.ok) throw new Error(r.statusText); return r.arrayBuffer(); })
+  .then((b) => setPackage(new Uint8Array(b), "aurora.fwsc from this site"))
+  .catch((e) => { $("pkginfo").textContent = `no bundled package (${e.message}); choose a file`; });
+$("file").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  try { setPackage(new Uint8Array(await f.arrayBuffer()), f.name); } catch (e) { $("pkginfo").textContent = `${f.name}: ${e.message}`; pkg = null; $("install").disabled = true; }
+});
+const WORDS = {
+  notfound: "FM-1 not found. Check the cable, close other programs using it, and try again.",
+  model: "That package is for a different device.",
+  stopped: "The FM-1 stopped answering. Nothing was written; try again.",
+  lost: "The FM-1 was disconnected. If it is in update mode now, replug and press Install again to finish.",
+  noloader: "The update mode did not start. Replug the cable and press Install again.",
+  noreturn: "The FM-1 did not come back: switch it off and on.",
+  mismatch: "Written, but the FM-1 reports a different firmware.",
+  badreq: "The FM-1 asked for data outside the package: wrong package for this device?",
+};
+$("install").addEventListener("click", async () => {
+  if (!pkg) return;
+  if (!navigator.requestMIDIAccess) { log("This browser has no Web MIDI: use Chrome or Edge.", "err"); return; }
+  let midi;
+  try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
+  catch (e) { log("MIDI (with system exclusive) was not allowed. Allow it in the site settings in the address bar and press Install again.", "err"); return; }
+  $("install").disabled = true; $("file").disabled = true;
+  $("bar").hidden = false; $("bar").value = 0;
+  const total = Math.ceil(pkg.image.length / 512);
+  const step = (k, a) => {
+    if (k === "start") log(`Found ${a}. Starting the update; do not unplug.`);
+    else if (k === "verify") { if (a % 50 === 0) log(`checking the package (${a} reads)`); }
+    else if (k === "loader") log("Switching the FM-1 to update mode…");
+    else if (k === "write") { $("bar").value = Math.min(99, Math.round(a * 100 / total)); if (a % 100 === 0) log(`writing ${$("bar").value}%`); }
+    else if (k === "reboot") { $("bar").value = 100; log("Written. Restarting…"); }
+    else if (k === "done") log(`Done: the FM-1 runs ${a}.`, "ok");
+  };
+  const up = new Updater(midi, (m) => console.log(m));
+  try {
+    let resumed = false;
+    try { resumed = await up.resume(pkg.image, step, pkg.product); } catch (e) { throw e; }
+    if (resumed) log("That finished an interrupted update.", "ok");
+    else await up.install(pkg.image, pkg.product, step);
+  } catch (e) {
+    log((WORDS[e.code] || e.message) + (e.detail ? ` (${e.detail})` : ""), "err");
+    console.error(e);
+  } finally {
+    $("install").disabled = false; $("file").disabled = false;
+  }
+});
+</script>
+</body>
+</html>

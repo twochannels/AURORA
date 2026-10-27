@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The documentation site, with the browser emulator, to GitHub Pages on every push to main.
+# web/site/build.sh needs Python 3 and Emscripten; the screenshots are committed, so no host build runs here.
+name: site
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.12
+      - run: web/site/build.sh
+      - run: node web/emu/emu_test.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,45 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* AURORA's site and emulator pages: a light or dark ground, warm charcoal cards, the panel's orange as the accent.
+ * After X0X's page styles (charlesvestal/fm1-x0x, GPL-3.0). */
+:root { --ground: #f4f3f0; --ink: #1d1b19; --muted: #645f58; --rule: #dcd8d1; --accent: #c8700a; --card: #fff; --panel: #262424; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ground: #141312; --ink: #e8e4dc; --muted: #9c968c; --rule: #2f2c29; --accent: #f0a043; --card: #1c1a19; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --ground: #141312; --ink: #e8e4dc; --muted: #9c968c; --rule: #2f2c29; --accent: #f0a043; --card: #1c1a19; color-scheme: dark; }
+body { background: var(--ground); color: var(--ink); margin: 0; padding-inline: 16px; padding-block: 28px 48px;
+       font: 400 16px/1.55 "Barlow", "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 960px; margin: 0 auto; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem 1.2rem; margin: 0 0 1rem; }
+h1 { font: 700 2rem/1.1 "Barlow Semi Condensed", "Barlow", sans-serif; margin: 0; }
+h1 a { color: inherit; text-decoration: none; }
+header p { margin: 0; color: var(--muted); }
+header nav { margin-left: auto; display: flex; gap: 1rem; flex-wrap: wrap; }
+a { color: var(--accent); }
+h2 { font: 700 1.5rem/1.2 "Barlow Semi Condensed", "Barlow", sans-serif; margin: 2.2rem 0 .6rem; letter-spacing: .01em; }
+h3 { font: 600 1.15rem/1.3 "Barlow Semi Condensed", "Barlow", sans-serif; margin: 1.6rem 0 .4rem; }
+kbd, code { font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; background: var(--card); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; }
+pre { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+pre code { border: 0; padding: 0; background: none; }
+table { border-collapse: collapse; width: 100%; margin: .6rem 0 1.2rem; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: .4rem .6rem; border-bottom: 1px solid var(--rule); }
+th { color: var(--muted); font-weight: 600; }
+td.k { white-space: nowrap; font-family: "Barlow Semi Condensed", sans-serif; font-weight: 600; letter-spacing: .04em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.card { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 1rem 1.1rem; }
+.card h3 { margin-top: 0; }
+.card p:last-child { margin-bottom: 0; }
+.shot { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.shot figure { margin: 0; }
+.shot img { width: 100%; image-rendering: pixelated; border-radius: 8px; border: 1px solid var(--rule); }
+.shot figcaption { color: var(--muted); font-size: 14px; margin-top: .3rem; }
+.try { display: inline-block; background: var(--accent); color: #1b1205; text-decoration: none; font: 600 .95rem "Barlow Semi Condensed", sans-serif; letter-spacing: .04em; padding: .35em 1em; border-radius: 999px; margin: .2rem .4rem .2rem 0; }
+.cap { display: inline-block; width: 1em; height: .6em; border-radius: 2px; vertical-align: middle; margin-right: .3em; border: 1px solid rgba(0,0,0,.25); }
+.cap.w { background: #ecea e2; background: #ecece4; } .cap.g { background: #00965c; } .cap.r { background: #d62838; } .cap.k { background: #3e3e44; } .cap.y { background: #ecc828; } .cap.s { background: #a0a0a8; }
+.note { border-left: 3px solid var(--accent); padding: .2rem 0 .2rem .9rem; color: var(--muted); }
+footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule); padding-top: 1rem; }
+.toc { columns: 2; column-gap: 2rem; font-size: 15px; } .toc li { break-inside: avoid; }
+@media (max-width: 640px) { .toc { columns: 1; } }
+
+.lead { font-size: 1.25rem; line-height: 1.45; margin: .4rem 0; }
+.lead + .lead { font-size: 1.05rem; color: var(--muted); }
+.aside { margin: .8rem 0 1rem; padding-left: .9rem; border-left: 3px solid var(--accent); color: var(--ink); }
