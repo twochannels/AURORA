@@ -7,6 +7,8 @@
  *                even partials: hollow to full), BRIGHT (a ceiling the partials fade under), an attack and a
  *                release; BLOOM staggers the partials' entry so a chord opens like a flower; DETUNE spreads each
  *                of the six lowest partials into a pair, so the pad shimmers and a chord's beats are smeared
+ *   the swarm    under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks
+ *                the note and follows TILT, the movement's colour and pressure; each saw wanders by DRIFT
  *   movement     four slow sources, WANDER (a random LFO in every voice, its own), WALK (a random walk), CHAOS (a
  *                Lorenz attractor) and TIDE (a slow sine over bars of the MIDI clock, or minutes), through a fixed
  *                sign pattern into four destinations, TILT, COLOUR (spread and brightness), PITCH and SPACE; the
@@ -32,11 +34,13 @@
 #define NV 8u                                      /* voices */
 #define NP 12u                                     /* partials a voice */
 #define NPAIR 6u                                   /* the lowest partials are detuned pairs (DETUNE) */
+#define NSW 5u                                     /* the swarm: detuned saws a voice, through one filter */
 #define VBUDGET 13000                              /* a voice's partials sum to at most this: 8 voices, chords and swells clear of the knee */
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
 typedef struct {
-    uint8_t tilt, spread, bright, attack, release, bloom, detune;   /* the pad; DETUNE spreads each low partial into a pair */
+    uint8_t tilt, spread, bright, attack, release, bloom, detune, pd_level;   /* the pad; DETUNE spreads each low partial into a pair */
+    uint8_t sw_level, sw_spread, sw_cut, sw_res;                 /* the swarm: its level, detune, filter cutoff and resonance */
     uint8_t move, rate, drift, width, air;                       /* movement, width, the air (noise: to come) */
     uint8_t src_wander, src_walk, src_chaos, src_tide;           /* the movement sources' amounts */
     uint8_t to_tilt, to_colour, to_pitch, to_space;              /* the destinations' depths */
@@ -48,7 +52,8 @@ typedef struct {
 } patch_t;
 static patch_t patch;
 static const patch_t INIT_PATCH = {
-    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36,
+    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36, .pd_level = 127,
+    .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
     .move = 64, .rate = 30, .drift = 30, .width = 70, .air = 0, .swell = 64,
     .src_wander = 100, .src_walk = 50, .src_chaos = 40, .src_tide = 80, .to_tilt = 80, .to_colour = 50, .to_pitch = 25, .to_space = 40,
     .dly_time = 90, .dly_fb = 50, .dly_mix = 0, .dly_ping = 1, .dly_damp = 50, .dly_sync = 0, .dly_tape = 40,
@@ -67,6 +72,10 @@ typedef struct {
     uint32_t seen, age;
     volatile uint8_t active;
     uint32_t ph[NP], ph2[NPAIR];                   /* each partial's phase, and the pairs' second halves */
+    uint32_t sph[NSW];                             /* the swarm's phases */
+    int32_t sdrift[NSW], sdtarget[NSW];            /* each saw's own pitch wander (random LFOs, DRIFT) */
+    int32_t sic[2][2];                             /* the swarm's two filters' states (left-leaning, right-leaning) */
+    int32_t samp;                                  /* the swarm's level last block (Q15), ramped a block */
     int32_t amp[NP];                               /* each partial's level now (Q15), ramped a block */
     int32_t walk[NP];                              /* each partial's random walk (Q15 around 0) */
     int32_t wander, wtarget;                       /* the voice's own random LFO (Q15): a slew towards random targets */
@@ -168,6 +177,8 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         if (!w->env) {                             /* from silence: Schroeder phases, so the harmonics never all peak together */
             for (k = 0; k < NP; k++) w->ph[k] = (uint32_t)(k * (k + 1u)) * 178956970u;   /* pi k (k + 1) / NP */
             for (k = 0; k < NPAIR; k++) w->ph2[k] = w->ph[k];
+            for (k = 0; k < NSW; k++) w->sph[k] = k * 858993459u + (k * k) * 300000000u;   /* the saws spread round the cycle */
+            w->sic[0][0] = w->sic[0][1] = w->sic[1][0] = w->sic[1][1] = 0;
         }
     }
     if (!w->gate && w->stage && w->stage < 3) w->stage = 3;
@@ -212,7 +223,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         lv = mulq15(lv, 32767 + (mulq15(w->walk[k], 16000)));               /* the walk: +-half */
         if (k && swell) lv += mulq15(32767 - lv, mulq15(swell, (int32_t)k * 2700));   /* pressure opens the upper partials */
         if (patch.bloom && w->t * 4u < (uint32_t)patch.bloom * k) lv = 0;   /* BLOOM: partial k enters bloom x k / 4 blocks in */
-        target[k] = mulq15(lv, env_q15) / (int32_t)(2 + (k >> 1));           /* the spectral shape */
+        target[k] = mulq15(mulq15(lv, env_q15), (int32_t)patch.pd_level * 258) / (int32_t)(2 + (k >> 1));   /* the spectral shape */
         sum += target[k];
     }
     {                                              /* the sum of the partials is the voice's worst-case peak: capped, so */
@@ -255,6 +266,33 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
             }
             w->ph[k] = ph;
         }
+        /* the swarm: NSW saws a little apart (SPREAD, up to +-50 cents, each wandering by DRIFT), through a low-pass
+         * that tracks the note, opened by CUTOFF, darkened by TILT, bent by the movement's colour and pressure;
+         * the saws alternate between the left-leaning and right-leaning sums, each with its own filter */
+        if (patch.sw_level) {
+            int32_t lvl = mulq15(env_q15, patch.sw_level * 258), a = w->samp << 8, d = lvl - w->samp;
+            int32_t cut16 = (int32_t)w->note * 16 + ((int32_t)patch.sw_cut - 32) * 16 - ((int32_t)patch.tilt - 64) * 8 + mv_spread * 4 + mulq15(swell, 48 * 16);
+            svf_t c;
+            uint32_t sinc[NSW];
+            int32_t *sl = osc_acc[core][0], *sr = osc_acc[core][1];
+            svf_coef(&c, cut16, SVF_K(patch.sw_res));
+            for (k = 0; k < NSW; k++) {
+                random_lfo(&w->sdrift[k], &w->sdtarget[k], &w->rng);
+                sinc[k] = pitch_inc256(pitch256 + ((int32_t)k - 2) * (int32_t)patch.sw_spread / 2 + ((mulq15(w->sdrift[k], patch.drift * 258) * 16) >> 15));
+            }
+            w->samp = lvl;
+            for (i = 0; i < HALF_FRAMES; i++) {
+                int32_t l = 0, r = 0, lp, hp, g = (a >> 8) * 4000 >> 15;      /* each saw at up to 4000: five, filtered, about as loud as the pad */
+                for (k = 0; k < NSW; k++) {
+                    int32_t v = mulq15(osc_saw(w->sph[k], sinc[k]), g);
+                    if (k & 1u) r += v; else l += v;
+                    w->sph[k] += sinc[k];
+                }
+                svf_step(&c, l, &w->sic[0][0], &w->sic[0][1], &lp, &hp); sl[i] += lp;
+                svf_step(&c, r, &w->sic[1][0], &w->sic[1][1], &lp, &hp); sr[i] += lp;
+                a += d;
+            }
+        } else w->samp = 0;
         for (i = 0; i < HALF_FRAMES; i++) {
             outl[i] += mulq15(odd[i], wl) + mulq15(even[i], wr);                /* ... even partials: right and a little left */
             outr[i] += mulq15(even[i], wl) + mulq15(odd[i], wr);
@@ -350,7 +388,7 @@ typedef struct {
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA3u
+#define SET_MAGIC 0xA4u
 
 /* ---- the pages */
 enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_DIV };
@@ -360,14 +398,16 @@ typedef struct { const char *name; uint8_t off, max, kind, global, color; const 
 #define ST(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1, c, hi, lo}
 #define NONE {0, 0, 0, 0, 0, 0, 0, 0}
 typedef struct { const char *title; pdesc_t p[4]; } page_t;
-enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_SWARM, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
 static const page_t PAGES[NPAGE] = {
     {"AURORA", {NONE, NONE, NONE, NONE}},
     {"PAD",    {PA(tilt, "TILT", 127, K_NUM, CW, "DARK", "FULL"), PA(spread, "SPREAD", 127, K_NUM, CW, "EVEN", "ODD"),
                 PA(bright, "BRIGHT", 127, K_NUM, CG, "OPEN", "LOW"), PA(bloom, "BLOOM", 127, K_NUM, CY, "SLOW", "AT ONCE")}},
     {"PAD 2",  {PA(attack, "ATTACK", 127, K_NUM, CK, "LONG", "SHORT"), PA(release, "RELEASE", 127, K_NUM, CK, "LONG", "SHORT"),
                 PA(swell, "SWELL", 127, K_NUM, CG, "10", "0"), PA(volume, "VOLUME", 127, K_NUM, CK, "10", "0")}},
-    {"PAD 3",  {PA(detune, "DETUNE", 127, K_NUM, CW, "WIDE", "PURE"), NONE, NONE, NONE}},
+    {"PAD 3",  {PA(detune, "DETUNE", 127, K_NUM, CW, "WIDE", "PURE"), PA(pd_level, "LEVEL", 127, K_NUM, CW, "10", "0"), NONE, NONE}},
+    {"SWARM",  {PA(sw_level, "LEVEL", 127, K_NUM, CW, "10", "0"), PA(sw_spread, "SPREAD", 127, K_NUM, CW, "WIDE", "TIGHT"),
+                PA(sw_cut, "CUTOFF", 127, K_NUM, CG, "OPEN", "DARK"), PA(sw_res, "RESO", 127, K_NUM, CR, "10", "0")}},
     {"MOVE",   {PA(move, "MOVE", 127, K_NUM, CW, "10", "0"), PA(rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"),
                 PA(drift, "DRIFT", 127, K_NUM, CW, "10", "0"), PA(width, "WIDTH", 127, K_NUM, CS, "WIDE", "MONO")}},
     {"SOURCES", {PA(src_wander, "WANDER", 127, K_NUM, CW, "10", "0"), PA(src_walk, "WALK", 127, K_NUM, CW, "10", "0"),
@@ -382,7 +422,7 @@ static const page_t PAGES[NPAGE] = {
                 PA(ph_fb, "FEEDBK", 127, K_NUM, CR, "10", "0"), PA(ph_mix, "MIX", 127, K_NUM, CS, "10", "0")}},
     {"MIDI",   {ST(midi_chan, "CHAN", 16, K_MCHAN, CW, "16", "OMNI"), ST(expr, "EXPR", 127, K_EXPR, CW, "CC", "AT"), NONE, NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 3}, {PG_PAD, 3}, {PG_PAD, 3}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 4}, {PG_PAD, 4}, {PG_PAD, 4}, {PG_PAD, 4}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -598,7 +638,7 @@ static void app_loop(void)
     if (b & (1u << BTN_OCT_DOWN) && set.oct_plus2 > 0u) { set.oct_plus2--; changed(); }
     if (b & (1u << BTN_OCT_UP) && set.oct_plus2 < 4u) { set.oct_plus2++; changed(); }
     if (b & (1u << BTN_HOME)) page = PG_HOME;
-    if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_PAD3 ? page + 1u : PG_PAD;
+    if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_SWARM ? page + 1u : PG_PAD;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_PHASER ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
@@ -654,7 +694,7 @@ static void app_loop(void)
         if (sounding >> k & 1u) { nv++; if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
-    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_PAD3);
+    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_SWARM);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_PHASER); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch);
     {
