@@ -4,7 +4,8 @@ An ambient instrument for the M-VAVE FM-1: big, wide sounds that keep moving on 
 sound module for a dawless rig, built for playing rather than sequencing.
 
 - **The pad**: eight voices of twelve sine partials. TILT sets how fast the partials fall off, SPREAD balances odd
-  against even from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry.
+  against even from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry, DETUNE spreads
+  each low partial into a pair so the pad shimmers and a chord's beats are smeared rather than bare.
 - **Movement**: four slow sources, WANDER (a random LFO in every voice), WALK (a random walk), CHAOS (a Lorenz
   attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.

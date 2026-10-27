@@ -5,7 +5,8 @@
  *
  *   the pad      eight voices of twelve sine partials: TILT (how fast the partials fall off), SPREAD (odd against
  *                even partials: hollow to full), BRIGHT (a ceiling the partials fade under), an attack and a
- *                release; BLOOM staggers the partials' entry so a chord opens like a flower
+ *                release; BLOOM staggers the partials' entry so a chord opens like a flower; DETUNE spreads each
+ *                of the six lowest partials into a pair, so the pad shimmers and a chord's beats are smeared
  *   movement     four slow sources, WANDER (a random LFO in every voice, its own), WALK (a random walk), CHAOS (a
  *                Lorenz attractor) and TIDE (a slow sine over bars of the MIDI clock, or minutes), through a fixed
  *                sign pattern into four destinations, TILT, COLOUR (spread and brightness), PITCH and SPACE; the
@@ -30,11 +31,12 @@
 #define NTICK (HALF_FRAMES / CTL)
 #define NV 8u                                      /* voices */
 #define NP 12u                                     /* partials a voice */
+#define NPAIR 6u                                   /* the lowest partials are detuned pairs (DETUNE) */
 #define VBUDGET 13000                              /* a voice's partials sum to at most this: 8 voices, chords and swells clear of the knee */
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
 typedef struct {
-    uint8_t tilt, spread, bright, attack, release, bloom;        /* the pad */
+    uint8_t tilt, spread, bright, attack, release, bloom, detune;   /* the pad; DETUNE spreads each low partial into a pair */
     uint8_t move, rate, drift, width, air;                       /* movement, width, the air (noise: to come) */
     uint8_t src_wander, src_walk, src_chaos, src_tide;           /* the movement sources' amounts */
     uint8_t to_tilt, to_colour, to_pitch, to_space;              /* the destinations' depths */
@@ -46,7 +48,7 @@ typedef struct {
 } patch_t;
 static patch_t patch;
 static const patch_t INIT_PATCH = {
-    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40,
+    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36,
     .move = 64, .rate = 30, .drift = 30, .width = 70, .air = 0, .swell = 64,
     .src_wander = 100, .src_walk = 50, .src_chaos = 40, .src_tide = 80, .to_tilt = 80, .to_colour = 50, .to_pitch = 25, .to_space = 40,
     .dly_time = 90, .dly_fb = 50, .dly_mix = 0, .dly_ping = 1, .dly_damp = 50, .dly_sync = 0, .dly_tape = 40,
@@ -64,7 +66,7 @@ typedef struct {
     volatile uint32_t trig;
     uint32_t seen, age;
     volatile uint8_t active;
-    uint32_t ph[NP];                               /* each partial's phase */
+    uint32_t ph[NP], ph2[NPAIR];                   /* each partial's phase, and the pairs' second halves */
     int32_t amp[NP];                               /* each partial's level now (Q15), ramped a block */
     int32_t walk[NP];                              /* each partial's random walk (Q15 around 0) */
     int32_t wander, wtarget;                       /* the voice's own random LFO (Q15): a slew towards random targets */
@@ -163,8 +165,10 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         w->stage = 1;
         w->t = 0;
         if (!w->rng) w->rng = 0x9E3779B9u * (uint32_t)(w - voices + 1);
-        if (!w->env)                               /* from silence: Schroeder phases, so the harmonics never all peak together */
+        if (!w->env) {                             /* from silence: Schroeder phases, so the harmonics never all peak together */
             for (k = 0; k < NP; k++) w->ph[k] = (uint32_t)(k * (k + 1u)) * 178956970u;   /* pi k (k + 1) / NP */
+            for (k = 0; k < NPAIR; k++) w->ph2[k] = w->ph[k];
+        }
     }
     if (!w->gate && w->stage && w->stage < 3) w->stage = 3;
     /* the envelope, a block at a time: linear attack, exponential release */
@@ -218,18 +222,36 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     for (k = 0; k < NP; k++) { from[k] = w->amp[k]; w->amp[k] = target[k]; }
     wl = 24576 + mulq15(width, 8191); wr = wl - mulq15(width, 28000);        /* odd partials: left and a little right (mono: 0.75, so it is no louder) */
     {   /* the oscillators: a partial at a time over the block (the increment once a block, the level a running sum,
-         * the sine from RAM), into the core's odd and even sums; a partial silent at both ends only keeps time */
+         * the sine from RAM), into the core's odd and even sums; a partial silent at both ends only keeps time.
+         * The lowest NPAIR partials are pairs a little above and below the pitch (DETUNE: up to +-8 cents), each
+         * half the level: every partial shimmers at its own slow rate, and the beats between a chord's notes
+         * (a tempered fifth's 785 Hz, once a second) are smeared into it rather than pulsing bare */
         int32_t *odd = osc_acc[core][0], *even = osc_acc[core][1];
-        uint32_t inc0 = pitch_inc256(pitch256);
+        uint32_t inc0 = pitch_inc256(pitch256), dq = ((uint32_t)patch.detune * 611u) >> 8;   /* the spread, 1/65536 of the pitch */
         for (i = 0; i < HALF_FRAMES; i++) odd[i] = even[i] = 0;
         for (k = 0; k < NP; k++) {
             int32_t *o = (k & 1u) ? even : odd, a = from[k] << 8, d = target[k] - from[k];
             uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
-            if ((!from[k] && !target[k]) || inc >= 0x80000000u) { w->ph[k] = ph + inc * HALF_FRAMES; continue; }   /* silent, or past Nyquist: it would fold back */
-            for (i = 0; i < HALF_FRAMES; i++) {
-                o[i] += mulq15(sine_r(ph), a >> 8);
-                a += d;
-                ph += inc;
+            if ((!from[k] && !target[k]) || inc >= 0x80000000u) {           /* silent, or past Nyquist: it would fold back */
+                w->ph[k] = ph + inc * HALF_FRAMES;
+                if (k < NPAIR) w->ph2[k] = w->ph2[k] + inc * HALF_FRAMES;
+                continue;
+            }
+            if (k < NPAIR && dq) {
+                uint32_t ph2 = w->ph2[k], inca = inc + (inc >> 16) * dq, incb = inc - (inc >> 16) * dq;
+                a = ((a >> 8) * 23170) >> 7; d = (d * 23170) >> 15;          /* each half at 0.707: the pair keeps the partial's power */
+                for (i = 0; i < HALF_FRAMES; i++) {
+                    o[i] += mulq15(sine_r(ph), a >> 8) + mulq15(sine_r(ph2), a >> 8);
+                    a += d;
+                    ph += inca; ph2 += incb;
+                }
+                w->ph2[k] = ph2;
+            } else {
+                for (i = 0; i < HALF_FRAMES; i++) {
+                    o[i] += mulq15(sine_r(ph), a >> 8);
+                    a += d;
+                    ph += inc;
+                }
             }
             w->ph[k] = ph;
         }
@@ -328,7 +350,7 @@ typedef struct {
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA2u
+#define SET_MAGIC 0xA3u
 
 /* ---- the pages */
 enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_DIV };
@@ -338,13 +360,14 @@ typedef struct { const char *name; uint8_t off, max, kind, global, color; const 
 #define ST(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1, c, hi, lo}
 #define NONE {0, 0, 0, 0, 0, 0, 0, 0}
 typedef struct { const char *title; pdesc_t p[4]; } page_t;
-enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
 static const page_t PAGES[NPAGE] = {
     {"AURORA", {NONE, NONE, NONE, NONE}},
     {"PAD",    {PA(tilt, "TILT", 127, K_NUM, CW, "DARK", "FULL"), PA(spread, "SPREAD", 127, K_NUM, CW, "EVEN", "ODD"),
                 PA(bright, "BRIGHT", 127, K_NUM, CG, "OPEN", "LOW"), PA(bloom, "BLOOM", 127, K_NUM, CY, "SLOW", "AT ONCE")}},
     {"PAD 2",  {PA(attack, "ATTACK", 127, K_NUM, CK, "LONG", "SHORT"), PA(release, "RELEASE", 127, K_NUM, CK, "LONG", "SHORT"),
                 PA(swell, "SWELL", 127, K_NUM, CG, "10", "0"), PA(volume, "VOLUME", 127, K_NUM, CK, "10", "0")}},
+    {"PAD 3",  {PA(detune, "DETUNE", 127, K_NUM, CW, "WIDE", "PURE"), NONE, NONE, NONE}},
     {"MOVE",   {PA(move, "MOVE", 127, K_NUM, CW, "10", "0"), PA(rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"),
                 PA(drift, "DRIFT", 127, K_NUM, CW, "10", "0"), PA(width, "WIDTH", 127, K_NUM, CS, "WIDE", "MONO")}},
     {"SOURCES", {PA(src_wander, "WANDER", 127, K_NUM, CW, "10", "0"), PA(src_walk, "WALK", 127, K_NUM, CW, "10", "0"),
@@ -359,7 +382,7 @@ static const page_t PAGES[NPAGE] = {
                 PA(ph_fb, "FEEDBK", 127, K_NUM, CR, "10", "0"), PA(ph_mix, "MIX", 127, K_NUM, CS, "10", "0")}},
     {"MIDI",   {ST(midi_chan, "CHAN", 16, K_MCHAN, CW, "16", "OMNI"), ST(expr, "EXPR", 127, K_EXPR, CW, "CC", "AT"), NONE, NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 2}, {PG_PAD, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 3}, {PG_PAD, 3}, {PG_PAD, 3}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -575,7 +598,7 @@ static void app_loop(void)
     if (b & (1u << BTN_OCT_DOWN) && set.oct_plus2 > 0u) { set.oct_plus2--; changed(); }
     if (b & (1u << BTN_OCT_UP) && set.oct_plus2 < 4u) { set.oct_plus2++; changed(); }
     if (b & (1u << BTN_HOME)) page = PG_HOME;
-    if (b & (1u << BTN_EDIT)) page = page == PG_PAD ? PG_PAD2 : PG_PAD;
+    if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_PAD3 ? page + 1u : PG_PAD;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_PHASER ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
@@ -631,7 +654,7 @@ static void app_loop(void)
         if (sounding >> k & 1u) { nv++; if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
-    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page == PG_PAD || page == PG_PAD2);
+    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_PAD3);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_PHASER); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch);
     {
