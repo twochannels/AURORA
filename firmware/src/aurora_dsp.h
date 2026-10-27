@@ -51,6 +51,15 @@ static inline int32_t softclip(int32_t x)
         y = TANH_Q15[i] + (((TANH_Q15[i + 1] - TANH_Q15[i]) * (a & 255)) >> 8);
     return x < 0 ? -y : y;
 }
+/* the same, but the knee reaches full scale: linear up to k, then tanh over the room that is left (k >= 16384) */
+static inline int32_t soft_knee_full(int32_t y, int32_t k)
+{
+    int32_t a = y < 0 ? -y : y, room = 32767 - k;
+    if (a <= k)
+        return y;
+    a = k + mulq15(softclip(((a - k) * (32767 * 256 / room)) >> 8), room);   /* unit slope at the knee */
+    return y < 0 ? -a : a;
+}
 /* linear up to k, then a soft knee: only the peaks above k saturate */
 static inline int32_t soft_knee(int32_t y, int32_t k)
 {

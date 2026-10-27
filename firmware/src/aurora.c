@@ -178,16 +178,19 @@ static void app_audio(int32_t *out, uint32_t n)
     }
     fx_delay(g_st, HALF_FRAMES);
     fx_phaser(g_st, HALF_FRAMES);
-    if (submitted) {
-        for (i = 0; i < 2u * HALF_FRAMES; i++) { rv_src[i] = g_st[i]; g_st[i] += rv_wet[i]; }
-    } else {
-        fx_reverb(g_st, rv_wet, HALF_FRAMES);
-        for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] += rv_wet[i];
+    {                                              /* SPACE: the wet on top of the dry, the dry down to half at full */
+        int32_t dry = 32767 - patch.rv_mix * 129;
+        if (submitted) {
+            for (i = 0; i < 2u * HALF_FRAMES; i++) { rv_src[i] = g_st[i]; g_st[i] = mulq15(g_st[i], dry) + rv_wet[i]; }
+        } else {
+            fx_reverb(g_st, rv_wet, HALF_FRAMES);
+            for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(g_st[i], dry) + rv_wet[i];
+        }
     }
     {
         int32_t pk = 0;
         for (i = 0; i < 2u * HALF_FRAMES; i++) {
-            int32_t o = soft_knee(g_st[i], 16000), a = o < 0 ? -o : o;
+            int32_t o = soft_knee_full(g_st[i], 20000), a = o < 0 ? -o : o;
             out[i] += o;
             if (a > pk) pk = a;
         }
