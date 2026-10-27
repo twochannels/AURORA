@@ -70,17 +70,20 @@ static voice_t voices[NV];
 static volatile int32_t bend256;                   /* pitch bend, 1/256 semitone */
 static volatile uint8_t press;                     /* channel pressure / expression, 0..127 (the main loop's) */
 static int32_t g_l[2][HALF_FRAMES], g_r[2][HALF_FRAMES];   /* each core's voices, left and right */
+static int32_t osc_acc[2][2][HALF_FRAMES];           /* each core's odd and even partial sums for the voice in hand */
+static int16_t SINE_RAM[1024];                        /* the sine table copied out of the flash: the oscillators read it 12 times a frame */
+static inline int32_t sine_r(uint32_t ph)
+{
+    uint32_t i = ph >> 22;
+    int32_t a = SINE_RAM[i], b = SINE_RAM[(i + 1u) & 1023u];
+    return a + (((b - a) * (int32_t)((ph >> 7) & 0x7FFFu)) >> 15);
+}
 static int32_t g_st[2u * HALF_FRAMES];
 static int32_t rv_src[2u * HALF_FRAMES], rv_wet[2u * HALF_FRAMES];
 static uint32_t audio_cycles;
 static volatile int32_t out_peak;
 
 /* ---- one voice, one block */
-static inline uint32_t partial_inc(uint32_t note, int32_t bend, uint32_t k)   /* partial k + 1 of the note's pitch */
-{
-    uint32_t inc = pitch_inc256((int32_t)note * 256 + bend);
-    return inc * (k + 1u);
-}
 static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
 {
     uint32_t k, i, trig = w->trig;
@@ -88,7 +91,6 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     int32_t tilt16 = (int32_t)patch.tilt * 16, spread = (int32_t)patch.spread - 64, bright = patch.bright;
     int32_t swell = mulq15(pr, (int32_t)patch.swell * 258);        /* 0..32767: pressure opening the pad */
     int32_t wl, wr, width = (int32_t)patch.width * 258;
-    (void)core;
     if (trig != w->seen) {                         /* a new note */
         w->seen = trig;
         w->stage = 1;
@@ -143,16 +145,26 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     }
     for (k = 0; k < NP; k++) { from[k] = w->amp[k]; w->amp[k] = target[k]; }
     wl = 32767; wr = 32767 - mulq15(width, 28000);                           /* odd partials: left and a little right ... */
-    for (i = 0; i < HALF_FRAMES; i++) {
-        int32_t odd = 0, even = 0, f = (int32_t)i;
+    {   /* the oscillators: a partial at a time over the block (the increment once a block, the level a running sum,
+         * the sine from RAM), into the core's odd and even sums; a partial silent at both ends only keeps time */
+        int32_t *odd = osc_acc[core][0], *even = osc_acc[core][1];
+        uint32_t inc0 = pitch_inc256((int32_t)w->note * 256 + bend256);
+        for (i = 0; i < HALF_FRAMES; i++) odd[i] = even[i] = 0;
         for (k = 0; k < NP; k++) {
-            int32_t a = from[k] + (((target[k] - from[k]) * f) >> 8);
-            int32_t s = mulq15(sine_i(w->ph[k]), a);
-            if (k & 1u) even += s; else odd += s;
-            w->ph[k] += partial_inc(w->note, bend256, k);
+            int32_t *o = (k & 1u) ? even : odd, a = from[k] << 8, d = target[k] - from[k];
+            uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
+            if (!from[k] && !target[k]) { w->ph[k] = ph + inc * HALF_FRAMES; continue; }
+            for (i = 0; i < HALF_FRAMES; i++) {
+                o[i] += mulq15(sine_r(ph), a >> 8);
+                a += d;
+                ph += inc;
+            }
+            w->ph[k] = ph;
         }
-        outl[i] += mulq15(odd, wl) + mulq15(even, wr);                       /* ... even partials: right and a little left */
-        outr[i] += mulq15(even, wl) + mulq15(odd, wr);
+        for (i = 0; i < HALF_FRAMES; i++) {
+            outl[i] += mulq15(odd[i], wl) + mulq15(even[i], wr);                /* ... even partials: right and a little left */
+            outr[i] += mulq15(even[i], wl) + mulq15(odd[i], wr);
+        }
     }
 }
 static void voices_render(uint32_t first, uint32_t step, int32_t *l, int32_t *r)
@@ -433,6 +445,7 @@ static void release_all(void)
 }
 static void app_init(void)
 {
+    for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
     if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u) {
         set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0;
         set.patch = INIT_PATCH;
