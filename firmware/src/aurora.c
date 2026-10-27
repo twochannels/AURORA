@@ -27,6 +27,7 @@
 #define NTICK (HALF_FRAMES / CTL)
 #define NV 8u                                      /* voices */
 #define NP 12u                                     /* partials a voice */
+#define VBUDGET 11000                              /* a voice's partials sum to at most this: 8 voices, chords and swells clear of the knee */
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
 typedef struct {
@@ -83,7 +84,7 @@ static inline uint32_t partial_inc(uint32_t note, int32_t bend, uint32_t k)   /*
 static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
 {
     uint32_t k, i, trig = w->trig;
-    int32_t target[NP], from[NP], env_q15, pr = press * 258;
+    int32_t target[NP], from[NP], env_q15, pr = press * 258, sum = 0;
     int32_t tilt16 = (int32_t)patch.tilt * 16, spread = (int32_t)patch.spread - 64, bright = patch.bright;
     int32_t swell = mulq15(pr, (int32_t)patch.swell * 258);        /* 0..32767: pressure opening the pad */
     int32_t wl, wr, width = (int32_t)patch.width * 258;
@@ -133,10 +134,14 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         lv = mulq15(lv, 32767 + (mulq15(w->walk[k], 16000)));               /* the walk: +-half */
         if (k && swell) lv += mulq15(32767 - lv, mulq15(swell, (int32_t)k * 2700));   /* pressure opens the upper partials */
         if (patch.bloom && w->t * 4u < (uint32_t)patch.bloom * k) lv = 0;   /* BLOOM: partial k enters bloom x k / 4 blocks in */
-        target[k] = mulq15(lv, env_q15) / (int32_t)(2 + (k >> 1));           /* the sum of twelve kept under full scale */
-        from[k] = w->amp[k];
-        w->amp[k] = target[k];
+        target[k] = mulq15(lv, env_q15) / (int32_t)(2 + (k >> 1));           /* the spectral shape */
+        sum += target[k];
     }
+    {                                              /* the sum of the partials is the voice's worst-case peak: capped, so */
+        int32_t budget = VBUDGET + mulq15(swell, VBUDGET / 2);               /* colour is not loudness; pressure is, by half */
+        if (sum > budget) for (k = 0; k < NP; k++) target[k] = target[k] * budget / sum;   /* (< 2^31) */
+    }
+    for (k = 0; k < NP; k++) { from[k] = w->amp[k]; w->amp[k] = target[k]; }
     wl = 32767; wr = 32767 - mulq15(width, 28000);                           /* odd partials: left and a little right ... */
     for (i = 0; i < HALF_FRAMES; i++) {
         int32_t odd = 0, even = 0, f = (int32_t)i;
