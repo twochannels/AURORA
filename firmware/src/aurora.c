@@ -329,7 +329,7 @@ static struct {
 } air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
 static void air_block(int32_t *st, uint32_t n)
 {
-    int32_t level = (int32_t)patch.air * patch.air * patch.air * 32767 / (127 * 127 * 127), target = 0, i, side;   /* cubic: a soft undertone over most of the knob, loud at the top */
+    int32_t level = ((int32_t)patch.air * patch.air * patch.air) >> 6, target = 0, i, side;   /* cubic (127^3 / 64 = 32005): a soft undertone over most of the knob, loud at the top */
     uint32_t v, p_crk, wind, crackle;
     if (!level && !air.env) return;
     for (v = 0; v < NV; v++) if ((voices[v].env >> 9) > target) target = voices[v].env >> 9;
