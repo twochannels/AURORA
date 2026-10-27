@@ -5,14 +5,16 @@ sound module for a dawless rig, built for playing rather than sequencing.
 
 - **The pad**: eight voices of twelve sine partials. TILT sets how fast the partials fall off, SPREAD balances odd
   against even from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry.
-- **Movement**: every voice wanders on its own (MOVE at RATE) and every partial walks (DRIFT).
+- **Movement**: four slow sources, WANDER (a random LFO in every voice), WALK (a random walk), CHAOS (a Lorenz
+  attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
+  pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
 - **Width**: odd partials lean left, even right (WIDTH); mono-safe.
 - **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock, a phaser.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad; PLAY latches a drone.
 
-Early days: the first build. To come: the swarm and air layers, the movement matrix with a clock-synced tide,
-freeze (grains on the delay line), scenes with a morph, and an autopilot.
+Early days. To come: the swarm and air layers, freeze (grains on the delay line), scenes with a morph, and an
+autopilot.
 
 ## Building
 

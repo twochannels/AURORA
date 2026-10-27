@@ -168,7 +168,7 @@ static inline int32_t delay32(int32_t *z, uint32_t len, uint32_t *w, int32_t x)
 static void fx_reverb(const int32_t *st, int32_t *wet, uint32_t n)   /* st: L R ... in; wet: L R ... out (the wet alone) */
 {
     uint32_t i;
-    int32_t decay = PLATE_D[patch.rv_size], mix = patch.rv_mix * 258, damp = 32767 - patch.rv_damp * 150;
+    int32_t decay = PLATE_D[patch.rv_size], mix = rv_mix_now * 258, damp = 32767 - patch.rv_damp * 150;
     int32_t shim = patch.rv_shim * 240;          /* 0 .. 0.93 of the loop's unity gain (below) */
     int32_t in_g, dq0, dq1;
     if (!mix && !shim) { for (i = 0; i < 2u * n; i++) wet[i] = 0; return; }
