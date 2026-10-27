@@ -109,6 +109,11 @@ static volatile int32_t out_peak;
 /* ---- the movement: the global sources once a block (the first core, before the hand-off), then the four
  * destinations' offsets this block. WANDER lives in each voice (voice_block). Sources are Q15 around 0. */
 static int32_t mv_fb;                              /* RATE as a frequency a block, Q16: 0.01 Hz (0) .. 2 Hz (127), log */
+static inline uint32_t exp2_q15(uint32_t e)        /* 2^(e / 1024) in Q15, e < 16 x 1024 */
+{
+    uint32_t fr = e & 1023u, m = fr ? (uint32_t)EXP2N_Q15[(1024u - fr) >> 2] * 2u : 32768u;   /* 2^(fr / 1024) = 2 x 2^(fr / 1024 - 1) */
+    return m << (e >> 10);
+}
 /* a random LFO: a new random target now and then (at the rate), slewed towards at the rate: smooth at any speed */
 static inline void random_lfo(int32_t *v, int32_t *target, uint32_t *rng)
 {
@@ -324,14 +329,13 @@ static struct {
 } air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
 static void air_block(int32_t *st, uint32_t n)
 {
-    int32_t level = patch.air * 258, target = 0, i, side;
+    int32_t level = (int32_t)patch.air * patch.air * patch.air * 32767 / (127 * 127 * 127), target = 0, i, side;   /* cubic: a soft undertone over most of the knob, loud at the top */
     uint32_t v, p_crk, wind, crackle;
     if (!level && !air.env) return;
     for (v = 0; v < NV; v++) if ((voices[v].env >> 9) > target) target = voices[v].env >> 9;
-    {   /* the breath: towards the loudest envelope, 60 ms at BREATH 0 to ~10 s at 127 */
-        int32_t k = 6554 >> ((uint32_t)patch.air_breath * 8u / 128u);     /* 0.2 .. 0.0008 a block */
+    {   /* the breath: towards the loudest envelope with a time constant of 50 ms at BREATH 0 to 20 s at 127 (log) */
+        int32_t k = (int32_t)(119304647u / exp2_q15((uint32_t)patch.air_breath * 70u));   /* 32768 / (9 x 400^(breath / 127)) blocks */
         air.env += ((target - air.env) * k) >> 15;
-        if (!patch.air_breath) air.env = target;
     }
     random_lfo(&air.wander, &air.wtarget, &air.rng[0]);
     for (side = 0; side < 2; side++) {             /* two filters, a little apart: the air is wide */
