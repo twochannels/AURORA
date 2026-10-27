@@ -30,7 +30,7 @@
 #define NTICK (HALF_FRAMES / CTL)
 #define NV 8u                                      /* voices */
 #define NP 12u                                     /* partials a voice */
-#define VBUDGET 11000                              /* a voice's partials sum to at most this: 8 voices, chords and swells clear of the knee */
+#define VBUDGET 13000                              /* a voice's partials sum to at most this: 8 voices, chords and swells clear of the knee */
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
 typedef struct {
@@ -88,6 +88,7 @@ static inline int32_t sine_r(uint32_t ph)
 static int32_t g_st[2u * HALF_FRAMES];
 static int32_t rv_src[2u * HALF_FRAMES], rv_wet[2u * HALF_FRAMES];
 static uint32_t audio_cycles;
+static int32_t poly_gain = 32767;                 /* the chord compensation, Q15, slewed a block at a time */
 static volatile int32_t out_peak;
 
 /* ---- the movement: the global sources once a block (the first core, before the hand-off), then the four
@@ -140,9 +141,12 @@ static void movement_block(void)
         if (j == 0) mv_tilt16 = (m * 1200) >> 15;                           /* +-75 of TILT */
         else if (j == 1) mv_spread = (m * 64) >> 15;                         /* +-64 of SPREAD and BRIGHT */
         else if (j == 2) mv_pitch256 = (m * 96) >> 15;                       /* +-37 cents */
-        else mv_space = (m * 80) >> 15;                                      /* +-80 of SPACE */
+        else mv_space = m;                                                   /* of SPACE: see below */
     }
-    rv_mix_now = clamp((int32_t)patch.rv_mix + mv_space, 0, 127);
+    {   /* SPACE moves by up to the distance to the knob's nearer end: 0 stays off and 127 stays full, 64 swings +-64 */
+        int32_t r = patch.rv_mix < 64 ? patch.rv_mix : 127 - patch.rv_mix;
+        rv_mix_now = clamp((int32_t)patch.rv_mix + ((mv_space * r) >> 15), 0, 127);
+    }
 }
 
 /* ---- one voice, one block */
@@ -159,6 +163,8 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         w->stage = 1;
         w->t = 0;
         if (!w->rng) w->rng = 0x9E3779B9u * (uint32_t)(w - voices + 1);
+        if (!w->env)                               /* from silence: Schroeder phases, so the harmonics never all peak together */
+            for (k = 0; k < NP; k++) w->ph[k] = (uint32_t)(k * (k + 1u)) * 178956970u;   /* pi k (k + 1) / NP */
     }
     if (!w->gate && w->stage && w->stage < 3) w->stage = 3;
     /* the envelope, a block at a time: linear attack, exponential release */
@@ -250,6 +256,14 @@ static void app_audio(int32_t *out, uint32_t n)
     submitted = audio_worker_submit(worker_render, 0);
     voices_render(0, submitted ? 2u : 1u, g_l[0], g_r[0]);
     if (submitted) audio_worker_join();
+    {   /* the chord: n voices (by their envelopes) at 1 / (1 + (n - 1) / 6): one note full, four at -3.5 dB, eight
+         * at -6.7, so a bright chord in mono stays under the knee; slewed over ~0.4 s so a note joining is no dip */
+        int32_t n = 0, target;
+        for (i = 0; i < NV; i++) n += voices[i].env >> 9;
+        target = n > 32767 ? 32767 * 32768 / (32768 + (n - 32767) / 6) : 32767;
+        poly_gain += (target - poly_gain) >> 6;
+        vol = mulq15(vol, poly_gain);
+    }
     for (i = 0; i < HALF_FRAMES; i++) {
         int32_t l = g_l[0][i] + (submitted ? g_l[1][i] : 0), r = g_r[0][i] + (submitted ? g_r[1][i] : 0);
         g_st[2u * i] = mulq15(soft_knee(l, 20000), vol);
