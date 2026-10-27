@@ -67,7 +67,7 @@ typedef struct {
     uint32_t ph[NP];                               /* each partial's phase */
     int32_t amp[NP];                               /* each partial's level now (Q15), ramped a block */
     int32_t walk[NP];                              /* each partial's random walk (Q15 around 0) */
-    int32_t wander;                                /* the voice's slow wander of the tilt (Q15) */
+    int32_t wander, wtarget;                       /* the voice's own random LFO (Q15): a slew towards random targets */
     int32_t env;                                   /* the envelope, Q24 */
     uint8_t stage;                                 /* 0 off 1 attack 2 held 3 release */
     uint32_t t;                                    /* blocks since the note began (BLOOM) */
@@ -92,13 +92,21 @@ static volatile int32_t out_peak;
 
 /* ---- the movement: the global sources once a block (the first core, before the hand-off), then the four
  * destinations' offsets this block. WANDER lives in each voice (voice_block). Sources are Q15 around 0. */
+static int32_t mv_fb;                              /* RATE as a frequency a block, Q16: 0.01 Hz (0) .. 2 Hz (127), log */
+/* a random LFO: a new random target now and then (at the rate), slewed towards at the rate: smooth at any speed */
+static inline void random_lfo(int32_t *v, int32_t *target, uint32_t *rng)
+{
+    uint32_t r = noise32(rng);
+    if ((int32_t)(r & 0xFFFFu) < mv_fb) *target = (int32_t)(r >> 17) - 16384 + ((int32_t)(noise32(rng) >> 17) - 16384);   /* a new target: +-32767, triangular */
+    *v += ((*target - *v) * (mv_fb * 6 > 65536 ? 65536 : mv_fb * 6)) >> 16;                              /* 2 pi f a block */
+}
 static struct {
-    int32_t walk[2];                               /* two random walks */
+    int32_t walk[2], wtarget[2];                   /* two random LFOs */
     int32_t x, y, z;                               /* the Lorenz attractor, Q8 */
     uint32_t tide;                                 /* the tide's phase, a turn = 2^32 */
     uint32_t rng;
     int32_t src[7];                                /* walk 0, walk 1, chaos x, y, z, tide sin, tide cos: the view's */
-} mv = {{0, 0}, 256, 256, 5120, 0, 0x2545F491u, {0}};
+} mv = {{0, 0}, {0, 0}, 256, 256, 5120, 0, 0x2545F491u, {0}};
 static int32_t mv_tilt16, mv_spread, mv_pitch256, mv_space;   /* the destinations' offsets this block */
 static volatile uint32_t tide_period_ms = 128000;  /* the tide's turn, from RATE and the clock (the main loop's) */
 static volatile uint32_t tide_reset;               /* MIDI start: the tide starts over */
@@ -106,17 +114,13 @@ static volatile uint32_t tide_reset;               /* MIDI start: the tide start
 static const int8_t MV_PATTERN[4][7] = {{1, 0, 1, 0, 0, 1, 0}, {0, -1, 0, 1, 0, 0, -1}, {-1, 0, 0, 0, 1, 0, 1}, {0, 1, -1, 0, 0, 1, 0}};
 static void movement_block(void)
 {
-    int32_t rate = patch.rate, step = 1 + (rate * rate >> 6), dt = 20 + (rate * rate * 640 >> 14);   /* dt: 0.0003 .. 0.01 */
-    int32_t move = patch.move * 258, amount[7], depth[4], j, i;
-    uint32_t k;
-    for (k = 0; k < 2u; k++) {                     /* the walks, as a voice's wander: a step a block and a leak home */
-        int32_t r = (int32_t)(noise32(&mv.rng) >> 20) - 2048;
-        mv.walk[k] += (r * step) >> 6;
-        mv.walk[k] = clamp(mv.walk[k], -32767, 32767);
-        mv.walk[k] -= mv.walk[k] >> 9;
-    }
-    {                                              /* Lorenz, sigma 10, rho 28, beta 8/3, Euler in Q8 */
+    int32_t move = patch.move * 258, amount[7], depth[4], j, i, dt;
+    uint32_t k, e = (uint32_t)patch.rate * 61u;    /* 2^(rate / 16.8): x200 over the knob */
+    mv_fb = (int32_t)((((e & 1023u) ? (uint32_t)EXP2N_Q15[(1024u - (e & 1023u)) >> 2] : 16384u) << (3u + (e >> 10))) >> 15);   /* 4 .. 760: f / 172 in Q16 */
+    for (k = 0; k < 2u; k++) random_lfo(&mv.walk[k], &mv.wtarget[k], &mv.rng);
+    {                                              /* Lorenz, sigma 10, rho 28, beta 8/3, Euler in Q8, its time at the rate */
         int32_t x = mv.x, y = mv.y, z = mv.z;
+        dt = 3 + ((mv_fb * 7) >> 3);                                             /* 0.00005 .. 0.01 a block */
         int32_t dx = (10 * (y - x) * dt) >> 16, dy = ((((x * (28 * 256 - z)) >> 8) - y) * dt) >> 16, dz = ((((x * y) >> 8) - (8 * z) / 3) * dt) >> 16;
         mv.x = clamp(x + dx, -16000, 16000); mv.y = clamp(y + dy, -16000, 16000); mv.z = clamp(z + dz, 0, 16000);
     }
@@ -170,13 +174,9 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     w->active = w->stage != 0;
     if (!w->active) return;
     w->t++;
-    /* the slow wander (MOVE at RATE) and the partials' random walks (DRIFT) */
+    /* the voice's own random LFO (WANDER, at RATE) and the partials' random walks (DRIFT) */
+    random_lfo(&w->wander, &w->wtarget, &w->rng);
     {
-        int32_t step = 1 + ((int32_t)patch.rate * patch.rate >> 6);          /* 1 .. 252 a block */
-        int32_t r = (int32_t)(noise32(&w->rng) >> 20) - 2048;               /* +-2048 */
-        w->wander += (r * step) >> 6;
-        w->wander = clamp(w->wander, -32767, 32767);
-        w->wander -= w->wander >> 9;                                         /* and a leak back to the centre */
         for (k = 0; k < NP; k++) {
             int32_t d = (int32_t)(noise32(&w->rng) >> 22) - 512;
             w->walk[k] += (d * (int32_t)patch.drift) >> 5;
@@ -210,7 +210,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         if (sum > budget) for (k = 0; k < NP; k++) target[k] = target[k] * budget / sum;   /* (< 2^31) */
     }
     for (k = 0; k < NP; k++) { from[k] = w->amp[k]; w->amp[k] = target[k]; }
-    wl = 32767; wr = 32767 - mulq15(width, 28000);                           /* odd partials: left and a little right ... */
+    wl = 24576 + mulq15(width, 8191); wr = wl - mulq15(width, 28000);        /* odd partials: left and a little right (mono: 0.75, so it is no louder) */
     {   /* the oscillators: a partial at a time over the block (the increment once a block, the level a running sum,
          * the sine from RAM), into the core's odd and even sums; a partial silent at both ends only keeps time */
         int32_t *odd = osc_acc[core][0], *even = osc_acc[core][1];
