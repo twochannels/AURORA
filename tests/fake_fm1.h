@@ -31,8 +31,41 @@ static volatile uint32_t audio_lates;
 typedef void (*audio_worker_fn)(void *);
 static struct { uint32_t jobs, max_job_ticks, max_wait_ticks, timeouts, last_job_ticks; } audio_worker;
 static int audio_worker_online = 1;
+#ifndef HOST_THREAD
 static int audio_worker_submit(audio_worker_fn fn, void *context) { fn(context); audio_worker.jobs++; return 1; }
 static void audio_worker_join(void) {}
+#else                                           /* -DHOST_THREAD: the job really runs on another thread, to catch races */
+#include <pthread.h>
+static pthread_mutex_t aw_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t aw_cv = PTHREAD_COND_INITIALIZER;
+static audio_worker_fn aw_fn; static void *aw_ctx; static int aw_busy, aw_started;
+static void *aw_thread(void *a)
+{
+    (void)a;
+    for (;;) {
+        pthread_mutex_lock(&aw_mu);
+        while (!aw_busy) pthread_cond_wait(&aw_cv, &aw_mu);
+        pthread_mutex_unlock(&aw_mu);
+        aw_fn(aw_ctx);
+        pthread_mutex_lock(&aw_mu); aw_busy = 0; pthread_cond_broadcast(&aw_cv); pthread_mutex_unlock(&aw_mu);
+    }
+    return 0;
+}
+static int audio_worker_submit(audio_worker_fn fn, void *context)
+{
+    pthread_t t;
+    if (!aw_started) { aw_started = 1; pthread_create(&t, 0, aw_thread, 0); }
+    pthread_mutex_lock(&aw_mu); aw_fn = fn; aw_ctx = context; aw_busy = 1; pthread_cond_broadcast(&aw_cv); pthread_mutex_unlock(&aw_mu);
+    audio_worker.jobs++;
+    return 1;
+}
+static void audio_worker_join(void)
+{
+    pthread_mutex_lock(&aw_mu);
+    while (aw_busy) pthread_cond_wait(&aw_cv, &aw_mu);
+    pthread_mutex_unlock(&aw_mu);
+}
+#endif
 
 /* ---- the panel: whoever drives the fake sets fm1_in, fake_pressed / fake_released and fake_enc */
 static struct { uint32_t notes, buttons; } fm1_in;
