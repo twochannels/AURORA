@@ -103,7 +103,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     } else if (w->stage == 3) {                    /* exponential: 60 dB in 0.1 s (0) .. ~30 s (127), log-spaced */
         uint32_t sh = (uint32_t)patch.release * 9u / 127u, fr = (uint32_t)patch.release * 9u % 127u;
         int32_t k = (22000 >> sh) - (int32_t)(((22000u >> sh) - (22000u >> (sh + 1u))) * fr / 127u);
-        w->env -= mulq15(w->env >> 9, k) << 9;
+        w->env -= ((w->env >> 9) * k) >> 6;         /* (not mulq15 << 9: that rounds to 0 below 2^15 / k and the tail would hang there for ever) */
         if (w->env < 2048) { w->env = 0; w->stage = 0; }
     }
     w->active = w->stage != 0;
