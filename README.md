@@ -8,6 +8,8 @@ sound module for a dawless rig, built for playing rather than sequencing.
   each low partial into a pair so the pad shimmers and a chord's beats are smeared rather than bare.
 - **The swarm**: under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks the
   note and follows TILT, the movement's colour and pressure; each saw wanders by DRIFT. LEVEL brings it in.
+- **The air**: noise shaped. Wind against crackle (TEXTURE) through a resonant band-pass a side (TONE, wandering at
+  RATE, bent by the movement's colour), breathing with the pad (BREATH its pace); AIR, also the macro, sets how much.
 - **Movement**: four slow sources, WANDER (a random LFO in every voice), WALK (a random walk), CHAOS (a Lorenz
   attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
@@ -16,7 +18,7 @@ sound module for a dawless rig, built for playing rather than sequencing.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad; PLAY latches a drone.
 
-Early days. To come: the air layer, freeze (grains on the delay line), scenes with a morph, and an autopilot.
+Early days. To come: freeze (grains on the delay line), scenes with a morph, and an autopilot.
 
 ## Building
 

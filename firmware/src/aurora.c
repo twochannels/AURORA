@@ -9,6 +9,8 @@
  *                of the six lowest partials into a pair, so the pad shimmers and a chord's beats are smeared
  *   the swarm    under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks
  *                the note and follows TILT, the movement's colour and pressure; each saw wanders by DRIFT
+ *   the air      noise shaped: wind against crackle (TEXTURE) through a resonant band-pass a side (TONE, wandering
+ *                at RATE, bent by the movement's colour) that breathes with the pad (BREATH); AIR sets how much
  *   movement     four slow sources, WANDER (a random LFO in every voice, its own), WALK (a random walk), CHAOS (a
  *                Lorenz attractor) and TIDE (a slow sine over bars of the MIDI clock, or minutes), through a fixed
  *                sign pattern into four destinations, TILT, COLOUR (spread and brightness), PITCH and SPACE; the
@@ -41,7 +43,8 @@
 typedef struct {
     uint8_t tilt, spread, bright, attack, release, bloom, detune, pd_level;   /* the pad; DETUNE spreads each low partial into a pair */
     uint8_t sw_level, sw_spread, sw_cut, sw_res;                 /* the swarm: its level, detune, filter cutoff and resonance */
-    uint8_t move, rate, drift, width, air;                       /* movement, width, the air (noise: to come) */
+    uint8_t air_tone, air_tex, air_breath;                       /* the air: its colour, wind against crackle, how slowly it breathes */
+    uint8_t move, rate, drift, width, air;                       /* movement, width, the air's level (the AIR macro) */
     uint8_t src_wander, src_walk, src_chaos, src_tide;           /* the movement sources' amounts */
     uint8_t to_tilt, to_colour, to_pitch, to_space;              /* the destinations' depths */
     uint8_t swell;                                               /* how much pressure / expression opens the pad */
@@ -54,6 +57,7 @@ static patch_t patch;
 static const patch_t INIT_PATCH = {
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36, .pd_level = 127,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
+    .air_tone = 60, .air_tex = 30, .air_breath = 70,
     .move = 64, .rate = 30, .drift = 30, .width = 70, .air = 0, .swell = 64,
     .src_wander = 100, .src_walk = 50, .src_chaos = 40, .src_tide = 80, .to_tilt = 80, .to_colour = 50, .to_pitch = 25, .to_space = 40,
     .dly_time = 90, .dly_fb = 50, .dly_mix = 0, .dly_ping = 1, .dly_damp = 50, .dly_sync = 0, .dly_tape = 40,
@@ -306,6 +310,50 @@ static void voices_render(uint32_t first, uint32_t step, int32_t *l, int32_t *r)
     for (v = first; v < NV; v += step) voice_block(&voices[v], l, r, first);
 }
 static void worker_render(void *ctx) { (void)ctx; voices_render(1, 2, g_l[1], g_r[1]); fx_reverb(rv_src, rv_wet, HALF_FRAMES); }
+/* ---- the air: noise, shaped. Wind (white noise) against crackle (bursts of random clicks), through a resonant
+ * band-pass a side, its centre set by TONE, wandering at RATE and bent by the movement's colour; it breathes
+ * with the pad (a slow follower of the loudest envelope, BREATH its pace) and AIR sets how much. Global, on the
+ * first core, into the mix before the space. */
+static struct {
+    uint32_t rng[2];
+    int32_t crk[2];                                /* the crackle bursts, decaying */
+    int32_t wander, wtarget;                       /* the centre's random LFO */
+    int32_t env;                                   /* the breath, Q15 */
+    int32_t ic[2][2];
+    svf_t c[2];
+} air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
+static void air_block(int32_t *st, uint32_t n)
+{
+    int32_t level = patch.air * 258, target = 0, i, side;
+    uint32_t v, p_crk, wind, crackle;
+    if (!level && !air.env) return;
+    for (v = 0; v < NV; v++) if ((voices[v].env >> 9) > target) target = voices[v].env >> 9;
+    {   /* the breath: towards the loudest envelope, 60 ms at BREATH 0 to ~10 s at 127 */
+        int32_t k = 6554 >> ((uint32_t)patch.air_breath * 8u / 128u);     /* 0.2 .. 0.0008 a block */
+        air.env += ((target - air.env) * k) >> 15;
+        if (!patch.air_breath) air.env = target;
+    }
+    random_lfo(&air.wander, &air.wtarget, &air.rng[0]);
+    for (side = 0; side < 2; side++) {             /* two filters, a little apart: the air is wide */
+        int32_t cut16 = (40 + (int32_t)patch.air_tone * 80 / 127) * 16 + ((mulq15(air.wander, 12 * 16)) ) + mv_spread * 4 + (side ? 3 * 16 : -3 * 16);
+        svf_coef(&air.c[side], cut16, SVF_K(70));
+    }
+    wind = (uint32_t)(127 - patch.air_tex) * 258u; crackle = (uint32_t)patch.air_tex * 258u;
+    p_crk = 1u + (uint32_t)patch.air_tex * 40u;    /* clicks a second x 65536 / FS: ~1 .. 120 a second */
+    level = mulq15(level, air.env);
+    for (i = 0; i < (int32_t)n; i++) {
+        for (side = 0; side < 2; side++) {
+            uint32_t r = noise32(&air.rng[side]);
+            int32_t x, bp, lp, hp;
+            if ((r >> 8 & 0xFFFFu) < p_crk * 65536u / FS + 1u) air.crk[side] = (int32_t)(r >> 17) - 16384;   /* a click lands */
+            air.crk[side] -= air.crk[side] >> 4;                                                            /* and rings out in ~1 ms */
+            x = mulq15((int32_t)(r >> 17) - 16384, (int32_t)wind) * 2 + mulq15(air.crk[side] + (air.crk[side] >> 2), (int32_t)crackle);   /* wind at -24 dBFS rms, crackle at -22, at full */
+            svf_step(&air.c[side], x, &air.ic[side][0], &air.ic[side][1], &lp, &hp);
+            bp = x - lp - hp;                                                                                /* the band-pass: in - lp - hp (k scaled) */
+            st[2u * (uint32_t)i + (uint32_t)side] += mulq15(bp, level);
+        }
+    }
+}
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i, t0 = fm1_ticks();
@@ -329,6 +377,7 @@ static void app_audio(int32_t *out, uint32_t n)
         g_st[2u * i] = mulq15(soft_knee(l, 20000), vol);
         g_st[2u * i + 1u] = mulq15(soft_knee(r, 20000), vol);
     }
+    air_block(g_st, HALF_FRAMES);
     fx_delay(g_st, HALF_FRAMES);
     fx_phaser(g_st, HALF_FRAMES);
     {                                              /* SPACE: the wet on top of the dry, the dry down to half at full */
@@ -388,7 +437,7 @@ typedef struct {
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA4u
+#define SET_MAGIC 0xA5u
 
 /* ---- the pages */
 enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_DIV };
@@ -398,7 +447,7 @@ typedef struct { const char *name; uint8_t off, max, kind, global, color; const 
 #define ST(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1, c, hi, lo}
 #define NONE {0, 0, 0, 0, 0, 0, 0, 0}
 typedef struct { const char *title; pdesc_t p[4]; } page_t;
-enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_SWARM, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
 static const page_t PAGES[NPAGE] = {
     {"AURORA", {NONE, NONE, NONE, NONE}},
     {"PAD",    {PA(tilt, "TILT", 127, K_NUM, CW, "DARK", "FULL"), PA(spread, "SPREAD", 127, K_NUM, CW, "EVEN", "ODD"),
@@ -408,6 +457,8 @@ static const page_t PAGES[NPAGE] = {
     {"PAD 3",  {PA(detune, "DETUNE", 127, K_NUM, CW, "WIDE", "PURE"), PA(pd_level, "LEVEL", 127, K_NUM, CW, "10", "0"), NONE, NONE}},
     {"SWARM",  {PA(sw_level, "LEVEL", 127, K_NUM, CW, "10", "0"), PA(sw_spread, "SPREAD", 127, K_NUM, CW, "WIDE", "TIGHT"),
                 PA(sw_cut, "CUTOFF", 127, K_NUM, CG, "OPEN", "DARK"), PA(sw_res, "RESO", 127, K_NUM, CR, "10", "0")}},
+    {"AIR",    {PA(air, "AIR", 127, K_NUM, CW, "10", "0"), PA(air_tone, "TONE", 127, K_NUM, CG, "BRIGHT", "DARK"),
+                PA(air_tex, "TEXTUR", 127, K_NUM, CY, "CRACKL", "WIND"), PA(air_breath, "BREATH", 127, K_NUM, CS, "SLOW", "FAST")}},
     {"MOVE",   {PA(move, "MOVE", 127, K_NUM, CW, "10", "0"), PA(rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"),
                 PA(drift, "DRIFT", 127, K_NUM, CW, "10", "0"), PA(width, "WIDTH", 127, K_NUM, CS, "WIDE", "MONO")}},
     {"SOURCES", {PA(src_wander, "WANDER", 127, K_NUM, CW, "10", "0"), PA(src_walk, "WALK", 127, K_NUM, CW, "10", "0"),
@@ -422,7 +473,7 @@ static const page_t PAGES[NPAGE] = {
                 PA(ph_fb, "FEEDBK", 127, K_NUM, CR, "10", "0"), PA(ph_mix, "MIX", 127, K_NUM, CS, "10", "0")}},
     {"MIDI",   {ST(midi_chan, "CHAN", 16, K_MCHAN, CW, "16", "OMNI"), ST(expr, "EXPR", 127, K_EXPR, CW, "CC", "AT"), NONE, NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 4}, {PG_PAD, 4}, {PG_PAD, 4}, {PG_PAD, 4}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -638,7 +689,7 @@ static void app_loop(void)
     if (b & (1u << BTN_OCT_DOWN) && set.oct_plus2 > 0u) { set.oct_plus2--; changed(); }
     if (b & (1u << BTN_OCT_UP) && set.oct_plus2 < 4u) { set.oct_plus2++; changed(); }
     if (b & (1u << BTN_HOME)) page = PG_HOME;
-    if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_SWARM ? page + 1u : PG_PAD;
+    if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_AIR ? page + 1u : PG_PAD;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_PHASER ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
@@ -694,7 +745,7 @@ static void app_loop(void)
         if (sounding >> k & 1u) { nv++; if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
-    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_SWARM);
+    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_AIR);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_PHASER); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch);
     {
