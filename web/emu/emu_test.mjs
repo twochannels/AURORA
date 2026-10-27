@@ -57,8 +57,8 @@ a.render(2400);
 a.render(500);                                    // the reverb tail, well down by now
 check("released: the tail falls by 10 dB in 3 s, its LED out", a.peak < early * 0.32 && !((a.ex.web_leds_keys() >> 7) & 1));
 a.ex.web_midi(0x90, 69, 100);
-a.render(200);
-check("a MIDI note in sounds", a.peak > 0.05);
+a.render(600);                                    // (the attack is 1.3 s: well into it)
+check("a MIDI note in sounds", a.peak > 0.08);
 a.ex.web_midi(0x80, 69, 0);
 a.render(300);
 
