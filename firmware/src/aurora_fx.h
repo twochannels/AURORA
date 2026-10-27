@@ -117,7 +117,7 @@ static int32_t rv_d2l[RV_D2_L] FM1_POOL, rv_d2r[RV_D2_R] FM1_POOL;
 #define SH_LEN 8192u                     /* the shimmer's grain: 186 ms, two heads half a grain apart */
 static int16_t sh_line[SH_LEN] FM1_POOL;
 static uint32_t rv_w, sh_w, sh_ph, rv_lfo[2];   /* sh_ph: the heads' position behind the write, in 1/256 frame */
-static int32_t rv_m16[2];                            /* the tank allpasses' modulation this block, in 1/16 frames (stepped once a block) */
+static int32_t rv_mq[2];                             /* the tank allpasses' modulation now, in 1/64 frames x 256: ramped every frame */
 static uint32_t rv_wi[4], rv_wap0[2], rv_wd1[2], rv_wap1[2], rv_wd2[2];   /* each buffer's write index */
 static int32_t rv_bw, rv_lpl, rv_lpr, rv_fbl, rv_fbr;   /* the input bandwidth, the two dampers, the cross-feeds */
 static int32_t rv_dcxl, rv_dcyl, rv_dcxr, rv_dcyr;   /* the output DC blockers' last input and output */
@@ -146,11 +146,11 @@ static inline int32_t allpass32(int32_t *z, uint32_t len, uint32_t *w, int32_t x
     return d - mulq15w(v, g);
 }
 /* the modulated allpass: its delay wanders RV_MOD either side of len, read between frames; the buffer is len + 64 */
-static inline int32_t allpass_mod(int32_t *z, uint32_t len, uint32_t *w, int32_t x, int32_t g, uint32_t m16)
+static inline int32_t allpass_mod(int32_t *z, uint32_t len, uint32_t *w, int32_t x, int32_t g, uint32_t m64)
 {
-    uint32_t size = len + 64u, dl = len - RV_MOD + (m16 >> 4), pa = wrap_back(*w, size, dl), pb = pa ? pa - 1u : size - 1u;
+    uint32_t size = len + 64u, dl = len - RV_MOD + (m64 >> 6), pa = wrap_back(*w, size, dl), pb = pa ? pa - 1u : size - 1u;
     int32_t a = z[pa], b = z[pb];
-    int32_t d = a + (((b - a) >> 4) * (int32_t)(m16 & 15u)), v = x + mulq15w(d, g);
+    int32_t d = a + (((b - a) * (int32_t)(m64 & 63u)) >> 6), v = x + mulq15w(d, g);   /* (|b - a| < 2^24: the tanks stay under 2^23) */
     z[*w] = v;
     if (++*w == size) *w = 0;
     return d - mulq15w(v, g);
@@ -170,19 +170,25 @@ static void fx_reverb(const int32_t *st, int32_t *wet, uint32_t n)   /* st: L R 
     uint32_t i;
     int32_t decay = PLATE_D[patch.rv_size], mix = patch.rv_mix * 258, damp = 32767 - patch.rv_damp * 150;
     int32_t shim = patch.rv_shim * 240;          /* 0 .. 0.93 of the loop's unity gain (below) */
-    int32_t in_g;
+    int32_t in_g, dq0, dq1;
     if (!mix && !shim) { for (i = 0; i < 2u * n; i++) wet[i] = 0; return; }
     /* a sustained input builds up ~1 / (1 - decay) in the tanks: the input is scaled by the loss so a held chord sits
      * at the same level whatever the SIZE (a tail then starts quieter the longer it is to last) */
     in_g = clamp((32768 - decay) * 7, 0, 32767);
     shim = mulq15(shim, in_g);                        /* the shimmer's injection, scaled the same way */
     if (shim > 8500) shim = 8500;                     /* and never past 0.35: short tails would ring otherwise */
-    rv_lfo[0] += 97391u * n; rv_lfo[1] += 68173u * n;   /* 1.0 Hz and 0.7 Hz, stepped a block at a time (5.8 ms) */
-    rv_m16[0] = (int32_t)((uint32_t)(sine_i(rv_lfo[0]) + 32768) * (RV_MOD * 2u * 16u) >> 16);   /* 0 .. 2 RV_MOD, 1/16 frames */
-    rv_m16[1] = (int32_t)((uint32_t)(sine_i(rv_lfo[1]) + 32768) * (RV_MOD * 2u * 16u) >> 16);
+    /* the tank allpasses' modulation: 1.0 Hz and 0.7 Hz, the LFO read at the block's end and the delay ramped
+     * towards it every frame (stepped once a block it jumped up to a frame at a time, 172 times a second: a hiss) */
+    rv_lfo[0] += 97391u * n; rv_lfo[1] += 68173u * n;
+    {
+        int32_t t0 = (int32_t)((uint32_t)(sine_i(rv_lfo[0]) + 32768) * (RV_MOD * 2u * 64u) >> 16);   /* 0 .. 2 RV_MOD, 1/64 frames */
+        int32_t t1 = (int32_t)((uint32_t)(sine_i(rv_lfo[1]) + 32768) * (RV_MOD * 2u * 64u) >> 16);
+        dq0 = ((t0 << 8) - rv_mq[0]) / (int32_t)n; dq1 = ((t1 << 8) - rv_mq[1]) / (int32_t)n;
+    }
     for (i = 0; i < n; i++) {
         int32_t in = mulq15((st[2u * i] + st[2u * i + 1u]) >> 1, in_g), x, tl, tr, l, r;
         uint32_t ml, mr;
+        rv_mq[0] += dq0; rv_mq[1] += dq1;
         if (shim) {
             sh_lp += (sh_fb - sh_lp) >> 2;               /* ~2.5 kHz: the octaves stack up softly */
             in += softclip(mulq15(sh_lp, shim));         /* and the loop can never run away: the feedback saturates */
@@ -196,7 +202,7 @@ static void fx_reverb(const int32_t *st, int32_t *wet, uint32_t n)   /* st: L R 
         x = allpass32(rv_in4, 410u, &rv_wi[3], x, 20480);
         x <<= 4;                                     /* into the tanks' Q4 */
         /* the two tanks, each fed by the input plus the other's end */
-        ml = (uint32_t)rv_m16[0]; mr = (uint32_t)rv_m16[1];
+        ml = (uint32_t)(rv_mq[0] >> 8); mr = (uint32_t)(rv_mq[1] >> 8);
         /* the taps are read before this frame's writes move the indices (Dattorro's nodes, scaled) */
         l = TAP(rv_d1r, RV_D1_R, rv_wd1[1], 394u) + TAP(rv_d1r, RV_D1_R, rv_wd1[1], 4401u) - TAP(rv_ap1r, RV_AP1_R, rv_wap1[1], 2831u)
           + TAP(rv_d2r, RV_D2_R, rv_wd2[1], 2954u) - TAP(rv_d1l, RV_D1_L, rv_wd1[0], 2945u) - TAP(rv_ap1l, RV_AP1_L, rv_wap1[0], 277u)
