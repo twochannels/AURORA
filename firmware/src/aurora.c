@@ -219,7 +219,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         for (k = 0; k < NP; k++) {
             int32_t *o = (k & 1u) ? even : odd, a = from[k] << 8, d = target[k] - from[k];
             uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
-            if (!from[k] && !target[k]) { w->ph[k] = ph + inc * HALF_FRAMES; continue; }
+            if ((!from[k] && !target[k]) || inc >= 0x80000000u) { w->ph[k] = ph + inc * HALF_FRAMES; continue; }   /* silent, or past Nyquist: it would fold back */
             for (i = 0; i < HALF_FRAMES; i++) {
                 o[i] += mulq15(sine_r(ph), a >> 8);
                 a += d;
