@@ -29,10 +29,15 @@
     <div class="k" aria-hidden="true"><i style="--c: var(--k1); --v: 55%"></i><i style="--c: var(--k2); --v: 47%"></i><i style="--c: var(--k3); --v: 16%"></i><i style="--c: var(--k4); --v: 0%"></i></div>
   </div>
 
-  <p class="lead">An ambient instrument for the M-VAVE FM-1: a spectral pad that drifts, a swarm, wind, a plate, a tape delay and a freeze. A sound module for a dawless rig: your sequencer sequences, AURORA sounds.</p>
   <p class="ctas"><a class="try" href="emu/">PLAY IT</a> <a class="try b" href="install.html">INSTALL IT</a></p>
 
-  <video class="demo" controls preload="metadata" poster="demo/poster.jpg" width="720" height="720"><source src="demo/aurora-demo.mp4" type="video/mp4"></video>
+  <div class="intro">
+    <div class="player" id="player">
+      <video class="demo" preload="metadata" poster="demo/poster.jpg" width="720" height="720" playsinline><source src="demo/aurora-demo.mp4" type="video/mp4"></video>
+      <button class="big-play" id="bigplay" type="button" aria-label="Play the demo"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46"/><path d="M40 30 L72 50 L40 70 Z"/></svg></button>
+    </div>
+    <p class="lead">An ambient instrument for the M-VAVE FM-1: a spectral pad that drifts, a swarm, wind, a plate, a tape delay and a freeze. A sound module for a dawless rig: your sequencer sequences, AURORA sounds.</p>
+  </div>
 
   <h2 id="sky-h">The sky is the sound</h2>
   <div class="shot" style="grid-template-columns: minmax(200px, 320px) 1fr; align-items: start">
@@ -119,6 +124,14 @@
   <footer><small>M-VAVE and FM-1 are their owners' marks. AURORA is not made or endorsed by any of them.</small></footer>
 </main>
 <script>
+/* the demo: a big play button over the poster, the controls once it is playing */
+(() => {
+  const p = document.getElementById("player"), v = p && p.querySelector("video"), b = document.getElementById("bigplay");
+  if (!v || !b) return;
+  b.addEventListener("click", () => { v.controls = true; v.play(); });
+  v.addEventListener("play", () => p.classList.add("playing"));
+  v.addEventListener("ended", () => { p.classList.remove("playing"); v.controls = false; });
+})();
 /* The sky: the firmware's curtains, in the page. Three curtains, each a sum of two waves, bent by slow random
  * walks standing in for the instrument's sources, lit from a sharp lower edge up into a long fade. */
 (() => {

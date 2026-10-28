@@ -85,7 +85,16 @@ footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px
 .panel b { font: 600 .9rem "Barlow Semi Condensed", sans-serif; letter-spacing: .1em; color: var(--ink); background: var(--card); border: 1px solid var(--rule); border-radius: 6px; padding: .1em .5em; white-space: nowrap; min-width: 6.5em; text-align: center; }
 .panel span { color: var(--muted); font-size: 15px; }
 
-/* the demo */
-.demo { display: block; width: min(100%, 480px); height: auto; margin: 1.2rem 0 .4rem; border-radius: 12px; border: 1px solid var(--rule); background: var(--panel); }
-.ctas { text-align: center; margin: 1.4rem 0; }
+/* the demo, beside the intro: a big play button over the poster until it plays */
+.intro { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 1.6rem; align-items: center; margin: 1.2rem 0 .6rem; }
+@media (max-width: 640px) { .intro { grid-template-columns: 1fr; } }
+.player { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--rule); background: var(--panel); }
+.demo { display: block; width: 100%; height: auto; }
+.big-play { position: absolute; inset: 0; width: 100%; height: 100%; background: rgba(5, 7, 12, .25); border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+.big-play svg { width: 28%; height: auto; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, .7)); transition: transform .15s; }
+.big-play svg circle { fill: rgba(14, 16, 24, .72); stroke: var(--k1); stroke-width: 3; }
+.big-play svg path { fill: var(--k1); }
+.big-play:hover svg { transform: scale(1.06); }
+.player.playing .big-play { display: none; }
+.ctas { text-align: center; margin: 1.4rem 0 .4rem; }
 .ctas .try { font-size: 1.05rem; letter-spacing: .14em; padding: .6em 1.6em; margin: .3rem .5rem; }
