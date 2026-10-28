@@ -43,7 +43,7 @@
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
 typedef struct {
-    uint8_t tilt, spread, bright, attack, release, bloom, detune;   /* the pad; DETUNE spreads each low partial into a pair */
+    uint8_t tilt, spread, bright, attack, decay, sustain, release, bloom, detune, velo;   /* the pad: its tone, its envelope, VELO how much velocity counts */   /* the pad; DETUNE spreads each low partial into a pair */
     uint8_t sw_level, sw_spread, sw_cut, sw_res;                 /* the swarm: its level, detune, filter cutoff and resonance */
     uint8_t air_tone, air_tex, air_breath;                       /* the air: its colour, wind against crackle, how slowly it breathes */
     uint8_t move, rate, drift, width, air;                       /* movement, width, the air's level (the AIR macro) */
@@ -57,7 +57,7 @@ typedef struct {
 } patch_t;
 static patch_t patch;
 static const patch_t INIT_PATCH = {
-    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36,
+    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
     .air_tone = 60, .air_tex = 30, .air_breath = 70,
     .move = 64, .rate = 30, .drift = 30, .width = 70, .air = 0, .swell = 64,
@@ -167,6 +167,11 @@ static void movement_block(void)
 }
 
 /* ---- one voice, one block */
+static int32_t env_k(uint32_t t)             /* an exponential stage's step: 60 dB in 0.1 s at 0 .. ~30 s at 127, log-spaced */
+{
+    uint32_t sh = t * 9u / 127u, fr = t * 9u % 127u;
+    return (22000 >> sh) - (int32_t)(((22000u >> sh) - (22000u >> (sh + 1u))) * fr / 127u);
+}
 static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
 {
     uint32_t k, i, trig = w->trig;
@@ -192,10 +197,15 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     if (w->stage == 1) {
         w->env += (1 << 24) / (int32_t)(4u + ((uint32_t)patch.attack * patch.attack >> 4));   /* 4 .. 1000 blocks */
         if (w->env >= (1 << 24)) { w->env = 1 << 24; w->stage = 2; }
-    } else if (w->stage == 3) {                    /* exponential: 60 dB in 0.1 s (0) .. ~30 s (127), log-spaced */
-        uint32_t sh = (uint32_t)patch.release * 9u / 127u, fr = (uint32_t)patch.release * 9u % 127u;
-        int32_t k = (22000 >> sh) - (int32_t)(((22000u >> sh) - (22000u >> (sh + 1u))) * fr / 127u);
-        w->env -= ((w->env >> 9) * k) >> 6;         /* (not mulq15 << 9: that rounds to 0 below 2^15 / k and the tail would hang there for ever) */
+    } else if (w->stage == 2) {                    /* the decay, towards the sustain, at DECAY's pace; at SUSTAIN 0 the voice ends there */
+        int32_t sus = (int32_t)patch.sustain * 132104;   /* 2^24 / 127 */
+        if (w->env > sus) {
+            w->env -= (((w->env - sus) >> 9) * env_k(patch.decay)) >> 6;
+            if (w->env - sus < 2048) w->env = sus;
+            if (w->env < 2048) { w->env = 0; w->stage = 0; }
+        }
+    } else if (w->stage == 3) {                    /* the release, exponential: 60 dB in 0.1 s (0) .. ~30 s (127), log-spaced */
+        w->env -= ((w->env >> 9) * env_k(patch.release)) >> 6;   /* (not mulq15 << 9: that rounds to 0 below 2^15 / k and the tail would hang there for ever) */
         if (w->env < 2048) { w->env = 0; w->stage = 0; }
     }
     w->active = w->stage != 0;
@@ -220,6 +230,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     }
     tilt16 = clamp(tilt16, 0, 2047); spread = clamp(spread, -64, 63); bright = clamp(bright, 0, 127);
     env_q15 = w->env >> 9;
+    env_q15 = mulq15(env_q15, 32767 - mulq15((int32_t)patch.velo * 258, (127 - (int32_t)w->vel) * 258));   /* VELO: how much a soft note is softer */
     /* each partial's level: 1 / (k + 1) ^ tilt, the odd / even balance, the brightness ceiling, the walk, the bloom */
     for (k = 0; k < NP; k++) {
         int32_t lv = 32767, n = (int32_t)k, j;
@@ -443,25 +454,26 @@ static uint32_t voices_sounding(void)
 
 /* ---- what survives a power-off */
 typedef struct {
-    uint8_t magic, oct_plus2, midi_chan, expr, latch;
+    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset;
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA7u
+#define SET_MAGIC 0xA8u
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
 enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI };
 typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
 #define NONE {0, 0, 0, 0, 0}
-enum { PG_HOME = 0, PG_TONE, PG_SHAPE, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_TONE, PG_SHAPE, PG_TOUCH, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
 typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
-static void draw_aurora(void), draw_tone(void), draw_shape(void), draw_swarm(void), draw_air(void), draw_move(void),
+static void draw_aurora(void), draw_tone(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
             draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
     {"AURORA",  draw_aurora, 1, {PA(tilt, "TILT", 127, K_NUM), PA(rv_mix, "SPACE", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(freeze, "FREEZE", 127, K_NUM)}},
     {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
-    {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM), PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM)}},
+    {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(decay, "DECAY", 127, K_NUM), PA(sustain, "SUSTAIN", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM)}},
+    {"TOUCH",   draw_touch,  1, {PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM), PA(velo, "VELO", 127, K_NUM), PA(volume, "VOLUME", 127, K_NUM)}},
     {"SWARM",   draw_swarm,  0, {PA(sw_level, "LEVEL", 127, K_NUM), PA(sw_spread, "SPREAD", 127, K_NUM), PA(sw_cut, "CUTOFF", 127, K_NUM), PA(sw_res, "RESO", 127, K_NUM)}},
     {"AIR",     draw_air,    1, {PA(air, "AIR", 127, K_NUM), PA(air_tone, "TONE", 127, K_NUM), PA(air_tex, "TEXTUR", 127, K_NUM), PA(air_breath, "BREATH", 127, K_NUM)}},
     {"MOVE",    draw_move,   1, {PA(move, "MOVE", 127, K_NUM), PA(rate, "RATE", 127, K_NUM), PA(drift, "DRIFT", 127, K_NUM), PA(width, "WIDTH", 127, K_NUM)}},
@@ -470,15 +482,62 @@ static const page_t PAGES[NPAGE] = {
     {"SPACE",   draw_space,  0, {PA(rv_mix, "MIX", 127, K_NUM), PA(rv_size, "SIZE", 127, K_NUM), PA(rv_damp, "DAMP", 127, K_NUM), PA(rv_shim, "SHIMMR", 127, K_NUM)}},
     {"DELAY",   draw_delay,  0, {PA(dly_time, "TIME", 127, K_NUM), PA(dly_fb, "FEEDBK", 127, K_NUM), PA(dly_mix, "MIX", 127, K_NUM), PA(dly_tape, "TAPE", 127, K_NUM)}},
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
-    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), NONE}},
+    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), NONE, NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
     {"MOVE", offsetof(patch_t, move)}, {"SPACE", offsetof(patch_t, rv_mix)}, {"AIR", offsetof(patch_t, air)}, {"TILT", offsetof(patch_t, tilt)},
     {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, freeze)}, {"BLOOM", offsetof(patch_t, bloom)}};
+/* ---- the presets: each a name and what it changes from the default sound (the ALGORITHM encoder on HOME, or a
+ * program change). From the slow and vast to the short and struck. */
+typedef struct { uint8_t off, v; } pdelta_t;
+#define D(f, v) {(uint8_t)offsetof(patch_t, f), v}
+#define END {255, 0}
+typedef struct { const char *name; pdelta_t d[40]; } preset_t;
+static const preset_t PRESETS[] = {
+    {"AURORA", {END}},
+    {"DEEP", {D(attack, 127), D(decay, 0), D(sustain, 127), D(release, 127), D(tilt, 85), D(bright, 70), D(detune, 50), D(bloom, 127), D(drift, 70), D(move, 127), D(rate, 30), D(width, 127),
+              D(src_wander, 100), D(src_walk, 80), D(src_chaos, 90), D(src_tide, 100), D(to_tilt, 100), D(to_colour, 70), D(to_pitch, 40), D(to_space, 80),
+              D(air, 40), D(air_tone, 40), D(air_breath, 110), D(sw_level, 50), D(sw_cut, 30), D(sw_res, 25), D(rv_mix, 100), D(rv_size, 127), D(rv_shim, 35), D(velo, 10), END}},
+    {"TIDE", {D(src_tide, 127), D(src_walk, 20), D(src_chaos, 0), D(src_wander, 40), D(to_space, 127), D(to_tilt, 110), D(to_pitch, 10), D(rate, 10), D(move, 127),
+              D(attack, 110), D(sustain, 127), D(release, 127), D(tilt, 75), D(bright, 100), D(detune, 40), D(air, 35), D(air_breath, 127), D(air_tone, 80),
+              D(rv_mix, 60), D(rv_size, 120), D(width, 100), D(velo, 10), END}},
+    {"CHOIR", {D(attack, 95), D(decay, 60), D(sustain, 110), D(release, 100), D(tilt, 60), D(bright, 80), D(detune, 80), D(bloom, 60), D(sw_level, 30), D(sw_cut, 36), D(sw_res, 10), D(sw_spread, 70),
+               D(air, 20), D(air_tone, 70), D(air_breath, 90), D(move, 60), D(rate, 25), D(width, 110), D(rv_mix, 80), D(rv_size, 115), D(velo, 30), END}},
+    {"ICE", {D(tilt, 100), D(spread, 90), D(bright, 127), D(detune, 60), D(attack, 70), D(sustain, 127), D(release, 110), D(air, 90), D(air_tone, 110), D(air_tex, 15), D(air_breath, 60),
+             D(rv_mix, 95), D(rv_size, 120), D(rv_shim, 70), D(rv_damp, 10), D(move, 50), D(rate, 20), D(width, 127), D(sw_level, 0), D(velo, 20), END}},
+    {"STORM", {D(air, 127), D(air_tone, 50), D(air_tex, 95), D(air_breath, 100), D(sw_level, 60), D(sw_cut, 50), D(sw_res, 60), D(tilt, 90), D(attack, 80), D(sustain, 127), D(release, 90),
+               D(move, 127), D(rate, 100), D(drift, 80), D(src_chaos, 127), D(to_tilt, 127), D(to_colour, 100), D(rv_mix, 80), D(rv_size, 100),
+               D(dly_mix, 50), D(dly_fb, 85), D(dly_tape, 120), D(dly_time, 100), D(width, 110), D(velo, 20), END}},
+    {"SWARM", {D(sw_level, 110), D(sw_cut, 64), D(sw_res, 70), D(sw_spread, 100), D(tilt, 110), D(bright, 60), D(attack, 50), D(sustain, 127), D(release, 70), D(drift, 100), D(move, 90), D(rate, 50),
+               D(width, 100), D(rv_mix, 50), D(dly_mix, 30), D(dly_fb, 50), D(velo, 40), END}},
+    {"SUB", {D(tilt, 127), D(bright, 127), D(detune, 0), D(sw_level, 90), D(sw_cut, 18), D(sw_res, 35), D(sw_spread, 12), D(attack, 40), D(sustain, 127), D(release, 90), D(move, 30), D(width, 50),
+             D(rv_mix, 20), D(rv_size, 60), D(air, 0), D(velo, 30), END}},
+    {"ORGAN", {D(attack, 4), D(decay, 0), D(sustain, 127), D(release, 8), D(tilt, 26), D(spread, 24), D(bright, 127), D(detune, 12), D(bloom, 0), D(sw_level, 0), D(move, 0), D(width, 40),
+               D(rv_mix, 25), D(rv_size, 60), D(velo, 0), END}},
+    {"GLASS", {D(attack, 0), D(decay, 70), D(sustain, 0), D(release, 60), D(tilt, 36), D(spread, 110), D(bright, 127), D(detune, 24), D(bloom, 0), D(swell, 30), D(sw_level, 0),
+               D(move, 30), D(rate, 40), D(width, 90), D(rv_mix, 70), D(rv_size, 100), D(rv_damp, 30), D(velo, 90), END}},
+    {"MALLET", {D(attack, 0), D(decay, 45), D(sustain, 0), D(release, 30), D(tilt, 80), D(spread, 50), D(bright, 90), D(detune, 0), D(bloom, 0), D(sw_level, 25), D(sw_cut, 90), D(sw_res, 40),
+                D(move, 10), D(width, 50), D(rv_mix, 40), D(rv_size, 70), D(dly_mix, 45), D(dly_fb, 55), D(dly_time, 70), D(dly_tape, 60), D(velo, 110), END}},
+    {"PLUCK", {D(attack, 0), D(decay, 25), D(sustain, 0), D(release, 15), D(tilt, 60), D(spread, 40), D(bright, 127), D(detune, 10), D(bloom, 0), D(sw_level, 70), D(sw_cut, 110), D(sw_res, 50), D(sw_spread, 30),
+               D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), END}},
+};
+#define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
+static void preset_build(uint32_t i, patch_t *p)
+{
+    const pdelta_t *d;
+    *p = INIT_PATCH;
+    for (d = PRESETS[i % NPRESET].d; d->off != 255u; d++) ((uint8_t *)p)[d->off] = d->v;
+}
+static int preset_edited(void)              /* the sound differs from its preset */
+{
+    patch_t p;
+    preset_build(set.preset, &p);
+    return memcmp(&p, &patch, sizeof p) != 0;
+}
 
 static uint32_t clk_last, last_midi_ms;       /* (the MIDI clock's and the last message's time: below) */
 /* ---- the screen: a header, a graphic the four knobs shift (240 x 124 at y 26), the four knobs under it in their
@@ -543,17 +602,27 @@ static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
 static void draw_header(void)
 {
     const page_t *pg = &PAGES[page];
-    char s[8];
-    int32_t w = text_w(&FONT_S, pg->title), x0 = (240 - w) / 2;
+    char s[16];
+    const char *title = pg->title;
+    int32_t w, x0;
+    if (page == PG_HOME) {                      /* the preset's name, starred once the sound has been changed */
+        int32_t i = 0;
+        const char *n = PRESETS[set.preset % NPRESET].name;
+        while (*n && i < 12) s[i++] = *n++;
+        if (preset_edited()) s[i++] = '*';
+        s[i] = 0; title = s;
+    }
+    w = text_w(&FONT_S, title); x0 = (240 - w) / 2;
     int32_t rl = PAGE_GROUP[page][1] > 1u ? 32 : 8, rr = page == PG_MIDI ? 232 - text_w(&FONT_S, "V" APP_VER) : 240 - 8;
     cv_begin(240, 24, C_PANEL);
     cv_rect(rl, 12, x0 - 6 - rl, 1, C_RULE);
     cv_rect(x0 + w + 6, 12, rr - (x0 + w + 6), 1, C_RULE);
-    cv_text(x0, 4, &FONT_S, pg->title, page == PG_HOME ? KC[0] : C_SILK);
+    cv_text(x0, 4, &FONT_S, title, page == PG_HOME ? KC[0] : C_SILK);
     if (page == PG_MIDI) cv_text(238 - text_w(&FONT_S, "V" APP_VER), 4, &FONT_S, "V" APP_VER, C_LEG);
     if (PAGE_GROUP[page][1] > 1u) {
-        s[0] = (char)('1' + page - PAGE_GROUP[page][0]); s[1] = '/'; s[2] = (char)('0' + PAGE_GROUP[page][1]); s[3] = 0;
-        cv_text(2, 4, &FONT_S, s, C_LEG);
+        char t[4];
+        t[0] = (char)('1' + page - PAGE_GROUP[page][0]); t[1] = '/'; t[2] = (char)('0' + PAGE_GROUP[page][1]); t[3] = 0;
+        cv_text(2, 4, &FONT_S, t, C_LEG);
     }
     cv_blit(0, 0);
 }
@@ -691,40 +760,61 @@ static void draw_tone(void)
     }
 }
 
-/* SHAPE: the envelope. A linear attack, held, an exponential release; BLOOM the later partials' later entries;
- * SWELL how far pressure lifts it; the loudest voice's place on it, live. */
+/* SHAPE: the envelope. A linear attack, an exponential decay to the sustain, held, an exponential release; the
+ * loudest voice's place on it, live. */
 static void draw_shape(void)
 {
-    int32_t ax = 8 + patch.attack * 70 / 127, rx = 12 + patch.release * 110 / 127, hold = 36, x0 = 10, base = 108, top = 36;
-    int32_t xs = x0 + ax + hold, i, b;
-    for (b = 2; b >= 0; b--) {                                /* BLOOM: the partials coming in later, the ghosts behind the line */
-        int32_t dx = b * (2 + patch.bloom * 10 / 127);
-        if (b && patch.bloom) cv_line(x0 + dx, base, x0 + ax + dx, top + b * 10, dim(KC[2], 110 + 50 * (3 - b)));
-    }
-    cv_line(x0, base, x0 + ax, top, KC[0]);                   /* the attack */
-    cv_hline(x0 + ax, xs, top, C_SILK);                       /* held */
-    for (i = 0; i < rx && xs + i < 238; i++)                  /* the release: 2^(-6 i / rx) */
-        cv_line(xs + i, base - decay_px(base - top, (uint32_t)(i * 6 * 1024 / rx)), xs + i + 1, base - decay_px(base - top, (uint32_t)((i + 1) * 6 * 1024 / rx)), KC[1]);
-    if (patch.swell) {                                        /* SWELL: the dashed line pressure can reach */
-        int32_t ys = top - patch.swell * 20 / 127;
-        for (i = x0 + ax; i < xs; i += 6) cv_hline(i, i + 2, ys, KC[3]);
-        cv_line(x0 + ax - 4, top, x0 + ax - 4 + 0, ys, dim(KC[3], 140));
-    }
+    int32_t ax = 6 + patch.attack * 60 / 127, dx = 6 + patch.decay * 60 / 127, rx = 10 + patch.release * 80 / 127, hold = 30, x0 = 10, base = 108, top = 30;
+    int32_t ys = base - ((base - top) * patch.sustain) / 127, xd = x0 + ax, xs = xd + dx, xr = xs + hold, i;
+    cv_line(x0, base, xd, top, KC[0]);                        /* the attack */
+    for (i = 0; i < dx; i++)                                  /* the decay: 2^(-6 i / dx) of the way down to the sustain */
+        cv_line(xd + i, ys - decay_px(ys - top, (uint32_t)(i * 6 * 1024 / dx)), xd + i + 1, ys - decay_px(ys - top, (uint32_t)((i + 1) * 6 * 1024 / dx)), KC[1]);
+    cv_hline(xs, xr, ys, KC[2]);                              /* the sustain */
+    for (i = 0; i < rx && xr + i < 238; i++)                  /* the release */
+        cv_line(xr + i, base - decay_px(base - ys, (uint32_t)(i * 6 * 1024 / rx)), xr + i + 1, base - decay_px(base - ys, (uint32_t)((i + 1) * 6 * 1024 / rx)), KC[3]);
     cv_hline(4, 236, base + 1, C_RULE);
+    cv_vline(xr, ys, base, dim(KC[2], 70));
     {   /* where the loudest voice is */
         int32_t v, best = -1, e = 0;
         for (v = 0; v < (int32_t)NV; v++) if (voices[v].active && voices[v].env > e) { e = voices[v].env; best = v; }
         if (best >= 0) {
-            int32_t x, y, lg = 0, q = e;
-            if (voices[best].stage == 1) { x = x0 + ((e >> 9) * ax >> 15); y = base - ((e >> 9) * (base - top) >> 15); }
-            else if (voices[best].stage == 2) { x = x0 + ax + ((int32_t)(voices[best].t > 4000u ? 4000u : voices[best].t) * hold / 4000); y = top; }
-            else {                                            /* release: x from how far down it is, in octaves */
-                while (q < (1 << 24) && lg < 24) { q <<= 1; lg++; }
-                x = xs + lg * rx / 20; y = base - (((e >> 9) * (base - top)) >> 15);
-            }
+            int32_t x, y = base - (((e >> 9) * (base - top)) >> 15), sus = (int32_t)patch.sustain * 132104, lg = 0, q;
+            if (voices[best].stage == 1) x = x0 + ((e >> 9) * ax >> 15);
+            else if (voices[best].stage == 2) {
+                if (e > sus + 2048) { q = e - sus; while (q < (1 << 24) && lg < 24) { q <<= 1; lg++; } x = xd + lg * dx / 9; }
+                else x = xs + ((int32_t)(voices[best].t > 4000u ? 4000u : voices[best].t) * hold / 4000);
+            } else { q = e; while (q < (1 << 24) && lg < 24) { q <<= 1; lg++; } x = xr + lg * rx / 20; }
             cv_dot(x > 236 ? 236 : x, y, 3, C_SILK);
         }
     }
+}
+
+/* TOUCH: BLOOM the partials' entries in turn, SWELL how far pressure lifts the sound, VELO how much a soft note
+ * gives, VOLUME */
+static void draw_touch(void)
+{
+    int32_t k, x, base = 108, top = 30;
+    for (k = 0; k < (int32_t)NP; k++) {                       /* BLOOM: when each partial comes in, a stair */
+        int32_t xb = 8 + k * 7, h = patch.bloom ? 4 + (int32_t)patch.bloom * k * 68 / (127 * 11) : 4;
+        cv_rect(xb, base - 4, 5, 4, dim(KC[0], 120));
+        cv_vline(xb + 2, base - h, base - 4, KC[0]);
+        cv_rect(xb, base - h - 2, 5, 2, KC[0]);
+    }
+    cv_text(8, 2, &FONT_S, "BLOOM", C_LEG);
+    {   /* SWELL: pressure's reach, a lift above the held line */
+        int32_t ys = base - 30, yr = ys - patch.swell * 40 / 127;
+        cv_hline(106, 150, ys, C_SILK);
+        for (x = 106; x < 150; x += 6) cv_hline(x, x + 2, yr, KC[1]);
+        cv_line(128, ys - 2, 128, yr + 2, dim(KC[1], 160));
+        cv_text(106, 2, &FONT_S, "SWELL", C_LEG);
+    }
+    {   /* VELO: level against velocity, a line from the soft end to the top */
+        int32_t y0 = base - ((base - top) * (127 - patch.velo)) / 127;
+        cv_hline(170, 232, base + 1, C_RULE); cv_vline(170, top, base, C_RULE);
+        cv_line(170, y0, 232, top, KC[2]);
+        cv_text(170, 2, &FONT_S, "VELO", C_LEG);
+    }
+    cv_rect(8, 116, 92, 4, C_SLOT); cv_rect(8, 116, patch.volume * 92 / 127, 4, KC[3]);   /* VOLUME */
 }
 
 /* SWARM: five saws fanned apart, under the filter's curve */
@@ -924,7 +1014,7 @@ static void draw_midi(void)
     if (set.midi_chan) { s[0] = (char)('0' + set.midi_chan / 10u); s[1] = (char)('0' + set.midi_chan % 10u); s[2] = 0; cv_text(100, 4, &FONT_S, set.midi_chan < 10u ? s + 1 : s, KC[0]); }
     else cv_text(100, 4, &FONT_S, "OMNI", KC[0]);
     cv_text(8, 26, &FONT_S, "SWELL BY", C_LEG);
-    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_MIDI].p[2], set.expr, s + 3); cv_text(100, 26, &FONT_S, s, KC[1]); }
+    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_TOUCH].p[3], set.expr, s + 3); cv_text(100, 26, &FONT_S, s, KC[1]); }
     else cv_text(100, 26, &FONT_S, "AFTERTOUCH", KC[1]);
     cv_text(8, 48, &FONT_S, "MACROS", C_LEG); cv_text(100, 48, &FONT_S, "CC 80..87", C_SILK);
     cv_text(8, 70, &FONT_S, "CLOCK", C_LEG); cv_text(100, 70, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
@@ -989,8 +1079,8 @@ static void release_all(void)
 static void app_init(void)
 {
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
-    if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u) {
-        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0;
+    if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NPRESET) {
+        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0;
         set.patch = INIT_PATCH;
     }
     patch = set.patch;
@@ -1020,7 +1110,10 @@ static void app_loop(void)
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
         sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k);
     }
-    if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page != PG_HOME) {   /* the group's pages, either way */
+    if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page == PG_HOME) {   /* HOME: the presets */
+        set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NPRESET * 4) % (int32_t)NPRESET);
+        preset_build(set.preset, &patch); set.patch = patch; changed(); page_drawn = ~0u;
+    } else if (n != 0) {                                                 /* the group's pages, either way */
         uint32_t first = PAGE_GROUP[page][0], cnt = PAGE_GROUP[page][1];
         page = first + (uint32_t)(((int32_t)(page - first) + n + (int32_t)cnt * 4) % (int32_t)cnt);
     }
@@ -1032,7 +1125,7 @@ static void app_loop(void)
             if (!d->name) continue;
             p = param_ptr(d);
             v = clamp((int32_t)*p + n * (d->max >= 100u ? 2 : 1), 0, d->max);
-            if (v != *p) { *p = (uint8_t)v; set.patch = patch; changed(); draw_knob(k); draw_graphic(); }
+            if (v != *p) { *p = (uint8_t)v; set.patch = patch; changed(); draw_knob(k); draw_graphic(); if (page == PG_HOME) draw_header(); }
         }
     while (midi_get(&st, &d1, &d2)) {
         uint32_t m = st & 0xF0u, chn = (st & 15u) + 1u;
@@ -1044,6 +1137,7 @@ static void app_loop(void)
         if (m == 0x90u && d2) note_on(d1, d2);
         else if (m == 0x80u || m == 0x90u) note_off(d1);
         else if (m == 0xD0u) press = d1;
+        else if (m == 0xC0u) { set.preset = (uint8_t)(d1 % NPRESET); preset_build(set.preset, &patch); set.patch = patch; changed(); page_drawn = ~0u; }
         else if (m == 0xE0u) bend256 = (((int32_t)d2 << 7 | d1) - 8192) >> 4;
         else if (m == 0xB0u) {
             if (set.expr && d1 == set.expr) { press = d2; continue; }

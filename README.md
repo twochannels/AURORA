@@ -3,7 +3,7 @@
 An ambient instrument for the M-VAVE FM-1: big, wide sounds that keep moving on their own and bend to MIDI. A
 sound module for a dawless rig, built for playing rather than sequencing.
 
-- **The pad**: eight voices of twelve sine partials. TILT sets how fast the partials fall off, SPREAD balances odd
+- **The pad**: eight voices of twelve sine partials with an ADSR envelope and velocity (VELO sets how much). TILT sets how fast the partials fall off, SPREAD balances odd
   against even from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry, DETUNE spreads
   each low partial into a pair so the pad shimmers and a chord's beats are smeared rather than bare.
 - **The swarm**: under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks the
@@ -20,10 +20,12 @@ sound module for a dawless rig, built for playing rather than sequencing.
   they pick, SHIFT their pitch, an octave either way), on into the phaser and the plate: the texture stays after the
   hands have left. Half way it smears away over a minute, at the top it holds for ever.
 - **The screen**: every page is a graphic the four knobs shift, each part drawn in the colour of the knob that
-  moves it: TONE is the spectrum, SHAPE the envelope, SWARM the saws under their filter, AIR the wind, MOVE the
+  moves it: TONE is the spectrum, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
   sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
   line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with TILT, SPACE,
   AIR and FREEZE under the knobs for playing.
+- **Presets**: twelve, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB and ORGAN to the struck
+  (GLASS, MALLET, PLUCK): the ALGORITHM encoder on HOME, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad; PLAY latches a drone.
 
