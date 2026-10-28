@@ -586,6 +586,7 @@ static int preset_edited(void)              /* the sound differs from its preset
 
 static uint32_t clk_last, last_midi_ms;       /* (the MIDI clock's and the last message's time: below) */
 static uint8_t autopilot;                     /* (SEQ's autopilot: below) */
+static uint32_t load_now, wload_now;          /* the cores' load, % (the MIDI page) */
 /* ---- the screen: a header, a graphic the four knobs shift (240 x 124 at y 26), the four knobs under it in their
  * colours, a status line. Every page's graphic is the thing its knobs change, each part drawn in the colour of the
  * knob that moves it: green, blue, violet, amber, left to right. HOME is the aurora: the sound, drawn. */
@@ -621,13 +622,6 @@ static void cv_curve(const int16_t *ys, int32_t x0, int32_t n, uint16_t c)   /* 
 {
     int32_t i;
     for (i = 1; i < n; i++) cv_line(x0 + i - 1, ys[i - 1], x0 + i, ys[i], c);
-}
-static void text_box(uint32_t x, uint32_t y, uint32_t w, const char *str, uint16_t c, int align)
-{
-    int32_t tw = text_w(&FONT_S, str), tx = align == 1 ? ((int32_t)w - tw) / 2 : align == 2 ? (int32_t)w - tw : 0;
-    cv_begin(w, FONT_S.h, page == PG_HOME ? C_GROUND : C_PANEL);
-    cv_text(tx, 0, &FONT_S, str, c);
-    cv_blit(x, y);
 }
 static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
 {
@@ -698,7 +692,7 @@ static void draw_knob(uint32_t k)       /* a knob's cell: a dial in its colour, 
 {
     const pdesc_t *d = &PAGES[page].p[k];
     char s[8];
-    cv_begin(60, 66, page == PG_HOME ? C_GROUND : C_PANEL);
+    cv_begin(60, 86, page == PG_HOME ? C_GROUND : C_PANEL);
     if (d->name) {
         uint32_t v = *param_ptr(d), mx = d->max ? d->max : 1u, sw = ARC_SWEEP / mx * v, age;
         uint16_t c = KC[k];
@@ -706,12 +700,12 @@ static void draw_knob(uint32_t k)       /* a knob's cell: a dial in its colour, 
         if (v != knob_last[k]) { knob_last[k] = (uint8_t)v; knob_flare[k] = fm1_ms | 1u; }
         age = fm1_ms - knob_flare[k];
         if (knob_flare[k] && age < 400u) c = blend(KC[k], RGB(255, 255, 255), (400u - age) * 160u / 400u);
-        cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + ARC_SWEEP, C_RULE);
-        if (v) cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + sw, c);
-        cv_dot(30 + ((sine_i(ARC_FROM + sw + 0x40000000u) * 15) >> 15), 19 + ((sine_i(ARC_FROM + sw) * 15) >> 15), knob_flare[k] && age < 400u ? 3 : 2, C_SILK);   /* the pointer */
+        cv_arc(30, 27, 17, ARC_FROM, ARC_FROM + ARC_SWEEP, C_RULE);
+        if (v) cv_arc(30, 27, 17, ARC_FROM, ARC_FROM + sw, c);
+        cv_dot(30 + ((sine_i(ARC_FROM + sw + 0x40000000u) * 17) >> 15), 27 + ((sine_i(ARC_FROM + sw) * 17) >> 15), knob_flare[k] && age < 400u ? 3 : 2, C_SILK);   /* the pointer */
         fmt_value(d, v, s);
-        w = text_w(&FONT_S, s); cv_text(30 - (w >> 1), 11, &FONT_S, s, C_SILK);
-        w = text_w(&FONT_S, d->name); cv_text(30 - (w >> 1), 48, &FONT_S, d->name, C_LEG);
+        w = text_w(&FONT_S, s); cv_text(30 - (w >> 1), 19, &FONT_S, s, C_SILK);
+        w = text_w(&FONT_S, d->name); cv_text(30 - (w >> 1), 60, &FONT_S, d->name, C_LEG);
     }
     cv_blit(60u * k, KY);
 }
@@ -1130,24 +1124,19 @@ static void draw_midi(void)
     cv_text(8, 48, &FONT_S, "MACROS", C_LEG); cv_text(100, 48, &FONT_S, "CC 80..87", C_SILK);
     cv_text(8, 70, &FONT_S, "CLOCK", C_LEG); cv_text(100, 70, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
     cv_text(8, 92, &FONT_S, "IN", C_LEG); cv_dot(106, 100, 4, fm1_ms - last_midi_ms < 200u ? KC[0] : C_SLOT);
+    {   /* the right column: the octave, the voices sounding, the cores' load */
+        uint32_t v, n = 0, l = load_now > 99u ? 99u : load_now, w = wload_now > 99u ? 99u : wload_now;
+        int32_t o = (int32_t)set.oct_plus2 - 2;
+        for (v = 0; v < NV; v++) if (voices[v].active) n++;
+        s[0] = 'O'; s[1] = 'C'; s[2] = 'T'; s[3] = ' '; s[4] = o < 0 ? '-' : '+'; s[5] = (char)('0' + (o < 0 ? -o : o)); s[6] = 0;
+        cv_text(160, 4, &FONT_S, s, C_LEG);
+        s[0] = (char)('0' + n); s[1] = ' '; s[2] = 'V'; s[3] = 'O'; s[4] = 'I'; s[5] = 'C'; s[6] = 'E'; s[7] = 'S'; s[8] = 0;
+        cv_text(160, 26, &FONT_S, s, n == NV ? KC[3] : C_LEG);
+        s[0] = (char)('0' + l / 10u); s[1] = (char)('0' + l % 10u); s[2] = '/'; s[3] = (char)('0' + w / 10u); s[4] = (char)('0' + w % 10u); s[5] = '%'; s[6] = 0;
+        cv_text(160, 48, &FONT_S, s, C_LEG); cv_text(160, 70, &FONT_S, "LOAD", C_LEG);
+    }
 }
 
-static uint32_t load_now, wload_now;
-static void draw_status(int32_t oct, uint32_t nvoices)
-{
-    char t[28] = "OCT +0   0 VOICES";
-    t[4] = oct < 0 ? '-' : '+';
-    t[5] = (char)('0' + (oct < 0 ? -oct : oct));
-    t[9] = (char)('0' + nvoices);
-    if (load_now) {
-        uint32_t l = load_now > 99u ? 99u : load_now, w = wload_now > 99u ? 99u : wload_now;
-        t[16] = ' '; t[17] = l >= 10u ? (char)('0' + l / 10u) : ' '; t[18] = (char)('0' + l % 10u); t[19] = '/';
-        t[20] = w >= 10u ? (char)('0' + w / 10u) : ' '; t[21] = (char)('0' + w % 10u); t[22] = '%'; t[23] = 0;
-    }
-    if (set.latch) { t[0] = 'L'; t[1] = 'A'; t[2] = 'T'; }
-    if (autopilot) { t[11] = 'A'; t[12] = 'U'; t[13] = 'T'; t[14] = 'O'; t[15] = ' '; t[16] = ' '; if (!load_now) t[15] = 0; }
-    text_box(0, 224, 240, t, C_LEG, 1);
-}
 static void draw_page(void)
 {
     uint32_t k;
@@ -1193,7 +1182,7 @@ static void auto_tick(void)                      /* every 100 ms */
     }
 }
 /* ---- the main loop */
-static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, status_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw, arp_was, arp_turned;
+static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw, arp_was, arp_turned;
 static uint8_t held[27], sustain, sus_held[128 / 8];
 static int32_t oct(void) { return (int32_t)set.oct_plus2 - 2; }
 static void changed(void) { dirty = 1; t_change = fm1_ms; }
@@ -1263,7 +1252,7 @@ static void app_loop(void)
         if (!arp) arp_turned = 0;
         arp_was = arp;
     }
-    if (b & (1u << BTN_PLAY)) { set.latch ^= 1u; if (!set.latch && !sustain) release_all(); changed(); status_drawn = ~0u; }   /* LATCH: a drone with no hands */
+    if (b & (1u << BTN_PLAY)) { set.latch ^= 1u; if (!set.latch && !sustain) release_all(); changed(); }   /* LATCH: a drone with no hands */
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
         sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k);
     }
@@ -1334,7 +1323,7 @@ static void app_loop(void)
         load_acc += ((l << 6) - load_acc) >> 6; wload_acc += ((w << 6) - wload_acc) >> 6;
         load_now = (uint32_t)(load_acc >> 6); wload_now = (uint32_t)(wload_acc >> 6);
     }
-    if (page != page_drawn) { page_drawn = page; draw_page(); status_drawn = ~0u; }
+    if (page != page_drawn) { page_drawn = page; draw_page(); }
     freeze_now = (fm1_in.buttons >> BTN_REC & 1u) ? 127u : patch.freeze;   /* REC held: frozen for as long as it is */
     if (fm1_ms - strip_ms >= 100u) {                                      /* ten a second: the live graphics, the bend's spring, the autopilot */
         uint32_t moving = morph != morph_to;
@@ -1348,8 +1337,6 @@ static void app_loop(void)
         if (autopilot || moving) { for (k = 0; k < 4u; k++) draw_knob(k); draw_graphic(); }
         else { if (PAGES[page].live) draw_graphic(); for (k = 0; k < 4u; k++) if (knob_flare[k] && fm1_ms - knob_flare[k] < 450u) draw_knob(k); }
     }
-    k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14 | (uint32_t)autopilot << 15;
-    if (k != status_drawn) { status_drawn = k; draw_status(oct(), nv); }
     if (out_peak > 512) loud_ms = fm1_ms;              /* (quiet is what matters: a pad's tail can run for half a minute) */
     if (dirty && fm1_ms - t_change > 2000u && fm1_ms - last_midi_ms > 1000u && fm1_ms - loud_ms > 500u) {
         settings_save(&set, sizeof set);
