@@ -57,6 +57,11 @@ typedef struct {
     uint8_t volume;
 } patch_t;
 static patch_t patch;
+/* the fields' names, in the struct's order: the emulator's "Copy sound" and any dump name them by these */
+static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,"
+    "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
+    "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume";
+typedef char patch_fields_count_check[sizeof(patch_t) == 48u ? 1 : -1];   /* a field added: add its name above, and bump this */
 static const patch_t INIT_PATCH = {
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,

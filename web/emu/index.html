@@ -64,10 +64,8 @@
     <label>MIDI in <select id="midiin"><option value="">none</option></select></label>
     <label>MIDI out <select id="midiout"><option value="">none</option></select></label>
     <span id="monitor"></span>
-    <button id="export" type="button" title="Save the 32 user presets to a file">Export presets</button>
-    <button id="import" type="button" title="Load user presets from a file (replaces the bank)">Import presets</button>
-    <input id="importfile" type="file" accept=".aurorabank,application/octet-stream" hidden>
-    <button id="reset" type="button" title="Forget the saved settings and the user presets and start again">Factory reset</button>
+    <button id="copy" type="button" title="Copy the sound as it is now, every control's value, as text">Copy sound</button>
+    <button id="reset" type="button" title="Forget the saved settings and start again">Factory reset</button>
   </div>
   <section class="help">
     <div>
@@ -88,7 +86,7 @@
     </div>
     <div>
       <h2>MIDI and saving</h2>
-      <p>Pick your controller or sequencer under <b>MIDI in</b>: notes, aftertouch, CCs, program change and clock reach the firmware exactly as on the FM-1, and the line beside it shows what arrives. The settings and the 32 user presets stay in this browser; <b>Export presets</b> writes them to a file you can import here again or on another machine. It is the firmware, not a recording: what you hear is AURORA running at the FM-1's 44.1 kHz.</p>
+      <p>Pick your controller or sequencer under <b>MIDI in</b>: notes, aftertouch, CCs, program change and clock reach the firmware exactly as on the FM-1, and the line beside it shows what arrives. The settings stay in this browser. <b>Copy sound</b> puts the sound as it is now on the clipboard as text, every control's value, to keep, to share, or to send in for a preset. It is the firmware, not a recording: what you hear is AURORA running at the FM-1's 44.1 kHz.</p>
     </div>
   </section>
   <footer><small>AURORA is GPL-3.0. The browser build and this page follow <a href="https://github.com/charlesvestal/fm1-x0x">X0X</a>'s (Charles Vestal) and <a href="https://github.com/hugelton/Felucca">Felucca</a>'s (Leo Kuroshita, Hügelton Instruments). M-VAVE and FM-1 are their owners' marks; CS-80 is Yamaha's. AURORA is affiliated with none of them.</small></footer>
@@ -320,25 +318,15 @@ const b64 = (u8) => { let s = ""; for (const c of u8) s += String.fromCharCode(c
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const loadBlob = (key) => { try { const s = localStorage.getItem(key); return s ? unb64(s).buffer : null; } catch { return null; } };
 const saveBlob = (key, u8) => { try { localStorage.setItem(key, b64(u8)); } catch {} };
-let bankNow = null;
-$("export").addEventListener("click", () => {
-  const data = bankNow || loadBlob(BANK_KEY);
-  if (!data) { $("status").textContent = "No user presets yet: save one first (SAVE, PRESETS, SAVE)."; return; }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
-  a.download = "aurora-presets.aurorabank"; a.click(); URL.revokeObjectURL(a.href);
-});
-$("import").addEventListener("click", () => $("importfile").click());
-$("importfile").addEventListener("change", async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  const data = new Uint8Array(await f.arrayBuffer());
-  if (data.length !== 4096) { $("status").textContent = `Not a AURORA preset bank (${data.length} bytes, expected 4096).`; return; }
-  saveBlob(BANK_KEY, data);
-  $("status").textContent = "Presets imported: switching on again to load them.";
-  location.reload();
+let patchNow = null, patchFields = null;
+$("copy").addEventListener("click", async () => {
+  if (!patchNow || !patchFields) { $("status").textContent = "Switch it on first."; return; }
+  const text = "AURORA sound, V@VERSION@: " + patchFields.map((f, i) => `${f}=${patchNow[i]}`).join(" ");
+  try { await navigator.clipboard.writeText(text); $("status").textContent = "Copied: " + text; }
+  catch { $("status").textContent = text; }
 });
 $("reset").addEventListener("click", () => {
-  if (!confirm("Forget the saved settings and the 32 user presets, and start again from the factory state?")) return;
+  if (!confirm("Forget the saved settings and start again from the factory state?")) return;
   try { localStorage.removeItem(SETTINGS_KEY); localStorage.removeItem(BANK_KEY); } catch {}
   location.reload();
 });
@@ -394,6 +382,7 @@ $("go").addEventListener("click", async () => {
       if (m.type === "ready") {
         $("start").hidden = true;
         $("status").textContent = `On, at ${m.rate} Hz${ac.sampleRate !== m.rate ? ` (the browser resamples from ${ac.sampleRate})` : ""}.`;
+        patchFields = m.fields || null;
         const want = new URLSearchParams(location.search).get("sound");   // ?sound=N: the manual opens a sound
         if (want !== null) setTimeout(() => send({ type: "midi", data: [0xC0, +want & 127, 0] }), 400);
       } else if (m.type === "error") { $("startmsg").textContent = `Could not start: ${m.message}`; $("go").disabled = false; }
@@ -401,6 +390,7 @@ $("go").addEventListener("click", async () => {
         if (m.fb) drawScreen(m.fb);
         if (m.leds) drawLights(m.leds);
         if (m.settings) saveBlob(SETTINGS_KEY, m.settings);
+        if (m.patch) patchNow = m.patch;
         if (m.bank) { bankNow = m.bank.buffer; saveBlob(BANK_KEY, m.bank); }
         if (m.load !== undefined) $("cpu").textContent = `device ${Math.round(m.load * 100)} % of real time`;
         if (m.midi && midiOut) for (const d of m.midi) { try { midiOut.send(d); } catch {} }

@@ -45,7 +45,12 @@ if (typeof registerProcessor === "function") {
           this.ex = ex;
           this.sentSaves = ex.web_settings_saves();
           this.sentBank = ex.web_bank_saves();
-          this.port.postMessage({ type: "ready", rate: ex.web_sample_rate() });
+          {                                       // the patch's field names, for "Copy sound"
+            const mem = new Uint8Array(ex.memory.buffer), p = ex.web_patch_fields();
+            let e = p; while (mem[e]) e++;
+            this.fields = new TextDecoder().decode(mem.subarray(p, e)).split(",");
+          }
+          this.port.postMessage({ type: "ready", rate: ex.web_sample_rate(), fields: this.fields });
         } catch (err) {
           this.port.postMessage({ type: "error", message: String(err && err.message || err) });
         }
@@ -91,6 +96,10 @@ if (typeof registerProcessor === "function") {
         this.sentBank = bsaves;
         msg.bank = new Uint8Array(mem, ex.web_bank(), ex.web_bank_size()).slice();
         transfer.push(msg.bank.buffer);
+      }
+      {                                           // the sound now, when it changed
+        const pt = new Uint8Array(mem, ex.web_patch(), ex.web_patch_size());
+        if (!this.sentPatch || pt.some((v, i) => v !== this.sentPatch[i])) { this.sentPatch = pt.slice(); msg.patch = Array.from(pt); }
       }
       const out = [];
       for (let p; (p = ex.web_midi_out_take()); ) out.push([p & 0xFF, (p >> 8) & 0x7F, (p >> 16) & 0x7F]);
