@@ -3,8 +3,8 @@
  * outboard. Fixed point, the lines in the pool (int16), the controls read from the patch a byte at a time.
  *   delay    one line, the input the sum of both sides; TIME, FEEDBK (with a one-pole damping in the loop),
  *            MIX; PING puts the right side on a tap at half the time
- *   freeze   FREEZE holds the delay line (a crossfade a pass, (1 - FREEZE)^3 of the new: at full nothing new is
- *            written, at half the old smears away over a minute) and plays eight grains off it, Hann windows at random places (SPRAY sets how far back),
+ *   freeze   FREEZE holds the delay line (a crossfade a pass: a hold time of 1 s at the bottom to 30 s just under
+ *            the top, for ever at 127; new sound comes in by what the hold leaves) and plays eight grains off it, Hann windows at random places (SPRAY sets how far back),
  *            lengths (GRAIN, +-12 %) and pans, at a pitch (SHIFT, +-12 semitones); the cloud goes on into the
  *            phaser and the plate, so FREEZE on the macro holds the texture after the hands have left
  *   reverb   a feedback delay network of eight lines (a Householder matrix: every line feeds every other),
@@ -26,7 +26,7 @@ static inline uint32_t dly_back(uint32_t back) { uint32_t p = dly_w + DLY_LEN - 
 #define NGRAIN 8u
 static struct { uint32_t pos, wph, winc; int32_t pl, pr; } grain[NGRAIN];   /* the read position (16.16 frames), the window's phase and step, the pan */
 static uint32_t frz_rng = 0x3C6EF35Fu, frz_len, frz_spray, frz_rate = 65536u;   /* this block's grain length (frames), reach (frames), rate (16.16) */
-static int32_t frz_now, frz_new = 32767;               /* FREEZE, Q15, slewed over ~0.1 s; how much new the line takes a pass: (1 - FREEZE)^3 */
+static int32_t frz_now, frz_new = 32767;               /* FREEZE, Q15, slewed over ~0.1 s; how much new the line takes a pass, from the hold time */
 static void grain_new(uint32_t g)
 {
     uint32_t r = noise32(&frz_rng), r2 = noise32(&frz_rng), len = frz_len - (frz_len >> 3) + (((frz_len >> 2) * (r2 & 255u)) >> 8);
@@ -42,7 +42,11 @@ static void freeze_block(void)
     int32_t was = frz_now, target = (int32_t)patch.freeze * 258;
     uint32_t g;
     frz_now += (target - frz_now) >> 4;
-    frz_new = 32767 - frz_now; frz_new = mulq15(mulq15(frz_new, frz_new), frz_new);   /* 64: -1.2 dB a pass (a minute's smear), 96: -0.14, 127: held */
+    if (patch.freeze >= 127u) frz_new = 0;      /* held for ever */
+    else {                                      /* a hold time: the line down 40 dB in 1 s at 0 to 30 s at 126 (log), one pass 1.1 s */
+        uint32_t t_q15 = exp2_q15((uint32_t)patch.freeze * 40u);                      /* seconds, Q15 */
+        frz_new = 32767 - (int32_t)((1u << 30) / exp2_q15(245268480u / t_q15));      /* 1 - 2^(-7.31 / T) */
+    }
     if (!frz_now) return;
     frz_len = (441u * exp2_q15((uint32_t)patch.frz_grain * 45u)) >> 15;          /* 10 ms .. 480 ms (log) */
     frz_spray = (882u * exp2_q15((uint32_t)patch.frz_spray * 46u)) >> 15;        /* 20 ms .. the whole line */
