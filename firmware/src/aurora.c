@@ -895,8 +895,12 @@ static void draw_traces(const uint16_t *cols, const int32_t *scale, int32_t rows
         int32_t yc = 14 + k * 28, py = yc;
         cv_hline(x0, x0 + w, yc, C_RULE);
         cv_text(0, yc - 8, &FONT_S, NAMES[k], C_LEG);
+        for (i = 0; i < w; i++) {                              /* the source itself, dim; what MOVE lets through, bright: both bent into the lane */
+            int32_t h = hist[k][(hist_n + 120u - (uint32_t)w + (uint32_t)i) % 120u] * 256, y = yc - (softclip(h) * 12 >> 15);
+            cv_line(x0 + i, i ? py : y, x0 + i + 1, y, dim(cols[k], 90)); py = y;
+        }
         for (i = 0; i < w; i++) {
-            int32_t y = yc - (hist[k][(hist_n + 120u - (uint32_t)w + (uint32_t)i) % 120u] * scale[k] * 13 >> 13);
+            int32_t h = hist[k][(hist_n + 120u - (uint32_t)w + (uint32_t)i) % 120u] * 256, y = yc - (softclip(mulq15(h, scale[k])) * 12 >> 15);
             cv_line(x0 + i, i ? py : y, x0 + i + 1, y, cols[k]); py = y;
         }
     }
@@ -905,10 +909,10 @@ static void draw_move(void)
 {
     uint16_t cols[4];
     int32_t scale[4], k, i, py = 112;
-    for (k = 0; k < 4; k++) { cols[k] = dim(KC[0], 120u + (uint32_t)patch.move); scale[k] = patch.move; }
+    for (k = 0; k < 4; k++) { cols[k] = dim(KC[0], 120u + (uint32_t)patch.move); scale[k] = mv_gain; }
     draw_traces(cols, scale, 4, 64, 110);
     for (i = 0; i < 50; i++) {                                /* DRIFT: one partial's walk */
-        int32_t y = 112 - (hist[4][(hist_n + 70u + (uint32_t)i) % 120u] * patch.drift * 9 >> 13);
+        int32_t y = 112 - (softclip(hist[4][(hist_n + 70u + (uint32_t)i) % 120u] * patch.drift * 4) * 10 >> 15);
         cv_line(180 + i, i ? py : y, 181 + i, y, KC[2]); py = y;
     }
     cv_text(180, 86, &FONT_S, "DRIFT", C_LEG);
