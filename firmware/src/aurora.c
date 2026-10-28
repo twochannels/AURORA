@@ -922,8 +922,12 @@ static void draw_matrix(void)
     static const char *const SRC[4] = {"WANDER", "WALK", "CHAOS", "TIDE"}, *const DST[4] = {"TILT", "COLOUR", "PITCH", "SPACE"};
     static const uint8_t SI[4] = {7, 0, 2, 5};                /* the pattern's column a source (wander: a voice's own) */
     const uint8_t *amt = &patch.src_wander, *dep = &patch.to_tilt;
-    int32_t r, c, x0 = 76, y0 = 20, cw = 40, rh = 26;
-    for (c = 0; c < 4; c++) cv_text(x0 + c * cw + cw / 2 - (text_w(&FONT_S, DST[c]) >> 1), 0, &FONT_S, DST[c], page == PG_DST ? KC[c] : C_LEG);
+    int32_t r, c, x0 = 76, y0 = 34, cw = 40, rh = 22;
+    for (c = 0; c < 4; c++) {                                 /* the targets' names on two lines: wider than their columns */
+        int32_t x = x0 + c * cw + cw / 2;
+        cv_text(x - (text_w(&FONT_S, DST[c]) >> 1), c & 1 ? 15 : 0, &FONT_S, DST[c], page == PG_DST ? KC[c] : C_LEG);
+        cv_vline(x, c & 1 ? 31 : 16, 31, C_RULE);
+    }
     for (r = 0; r < 4; r++) {
         int32_t live = r == 0 ? hist[0][(hist_n + 119u) % 120u] : mv.src[SI[r]] >> 7, y = y0 + r * rh + rh / 2;
         cv_text(0, y - 8, &FONT_S, SRC[r], page == PG_SRC ? KC[r] : C_LEG);
