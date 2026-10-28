@@ -323,21 +323,30 @@ static struct {
     uint32_t rng[2];
     int32_t crk[2];                                /* the crackle bursts, decaying */
     int32_t wander, wtarget;                       /* the centre's random LFO */
-    int32_t env;                                   /* the breath, Q15 */
+    int32_t env;                                   /* follows the pad, Q15 */
+    uint32_t bph;                                  /* the breath's phase */
     int32_t ic[2][2];
     svf_t c[2];
-} air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
+} air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, 0x99999999u, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
 static void air_block(int32_t *st, uint32_t n)
 {
     int32_t level = ((int32_t)patch.air * patch.air * patch.air) >> 6, target = 0, i, side;   /* cubic (127^3 / 64 = 32005): a soft undertone over most of the knob, loud at the top */
     uint32_t v, p_crk, wind, crackle;
     if (!level && !air.env) return;
     for (v = 0; v < NV; v++) if ((voices[v].env >> 9) > target) target = voices[v].env >> 9;
-    {   /* the breath: towards the loudest envelope with a time constant of 50 ms at BREATH 0 to 20 s at 127 (log) */
-        int32_t k = (int32_t)(119304647u / exp2_q15((uint32_t)patch.air_breath * 70u));   /* 32768 / (9 x 400^(breath / 127)) blocks */
-        air.env += ((target - air.env) * k) >> 15;
-    }
+    air.env += ((target - air.env) * (target > air.env ? 630 : 47)) >> 15;   /* with the pad: in over ~0.3 s, lingering ~4 s after it */
     random_lfo(&air.wander, &air.wtarget, &air.rng[0]);
+    if (patch.air_breath) {                        /* the breath: in and out on its own, one every 20 s at 1 to one every 2 s at 127 (log),
+                                                    * the in-breath 60 % of it, the pace nudged +-25 % by the wander: no two alike */
+        uint32_t inc = 38u * exp2_q15((uint32_t)patch.air_breath * 27u), ph;
+        int32_t breath;
+        inc += (uint32_t)(((int32_t)(inc >> 8) * (air.wander >> 7)) >> 1);
+        air.bph += inc;
+        ph = air.bph < 0x99999999u ? (air.bph >> 8) * 213u : 0x80000000u + ((air.bph - 0x99999999u) >> 8) * 320u;   /* 0..60 % -> the rise, the rest the fall */
+        breath = (32767 - sine_r(ph + 0x40000000u)) >> 1;                      /* 0 at the trough, 1 at the peak */
+        target = 8192 + mulq15(breath, 24575);                                   /* -12 dB at the trough, full at the peak */
+        level = mulq15(level, target);
+    } else air.bph = 0x99999999u;                  /* held: ready to leave from the peak */
     for (side = 0; side < 2; side++) {             /* two filters, a little apart: the air is wide */
         int32_t cut16 = (40 + (int32_t)patch.air_tone * 80 / 127) * 16 + ((mulq15(air.wander, 12 * 16)) ) + mv_spread * 4 + (side ? 3 * 16 : -3 * 16);
         svf_coef(&air.c[side], cut16, SVF_K(70));
@@ -462,7 +471,7 @@ static const page_t PAGES[NPAGE] = {
     {"SWARM",  {PA(sw_level, "LEVEL", 127, K_NUM, CW, "10", "0"), PA(sw_spread, "SPREAD", 127, K_NUM, CW, "WIDE", "TIGHT"),
                 PA(sw_cut, "CUTOFF", 127, K_NUM, CG, "OPEN", "DARK"), PA(sw_res, "RESO", 127, K_NUM, CR, "10", "0")}},
     {"AIR",    {PA(air, "AIR", 127, K_NUM, CW, "10", "0"), PA(air_tone, "TONE", 127, K_NUM, CG, "BRIGHT", "DARK"),
-                PA(air_tex, "TEXTUR", 127, K_NUM, CY, "CRACKL", "WIND"), PA(air_breath, "BREATH", 127, K_NUM, CS, "SLOW", "FAST")}},
+                PA(air_tex, "TEXTUR", 127, K_NUM, CY, "CRACKL", "WIND"), PA(air_breath, "BREATH", 127, K_NUM, CS, "FAST", "HELD")}},
     {"MOVE",   {PA(move, "MOVE", 127, K_NUM, CW, "10", "0"), PA(rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"),
                 PA(drift, "DRIFT", 127, K_NUM, CW, "10", "0"), PA(width, "WIDTH", 127, K_NUM, CS, "WIDE", "MONO")}},
     {"SOURCES", {PA(src_wander, "WANDER", 127, K_NUM, CW, "10", "0"), PA(src_walk, "WALK", 127, K_NUM, CW, "10", "0"),

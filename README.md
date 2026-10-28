@@ -9,7 +9,8 @@ sound module for a dawless rig, built for playing rather than sequencing.
 - **The swarm**: under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks the
   note and follows TILT, the movement's colour and pressure; each saw wanders by DRIFT. LEVEL brings it in.
 - **The air**: noise shaped. Wind against crackle (TEXTURE) through a resonant band-pass a side (TONE, wandering at
-  RATE, bent by the movement's colour), breathing with the pad (BREATH its pace); AIR, also the macro, sets how much.
+  RATE, bent by the movement's colour), swelling in with the pad and lingering after it, and breathing in and out on its own at the
+  pace BREATH sets; AIR, also the macro, sets how much.
 - **Movement**: four slow sources, WANDER (a random LFO in every voice), WALK (a random walk), CHAOS (a Lorenz
   attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
