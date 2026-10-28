@@ -70,6 +70,11 @@ static inline int32_t soft_knee(int32_t y, int32_t k)
     return y < 0 ? -a : a;
 }
 
+static inline uint32_t exp2_q15(uint32_t e)        /* 2^(e / 1024) in Q15, e < 16 x 1024 */
+{
+    uint32_t fr = e & 1023u, m = fr ? (uint32_t)EXP2N_Q15[(1024u - fr) >> 2] * 2u : 32768u;   /* 2^(fr / 1024) = 2 x 2^(fr / 1024 - 1) */
+    return m << (e >> 10);
+}
 static inline uint32_t noise32(uint32_t *st)        /* xorshift32 */
 {
     uint32_t s = *st;

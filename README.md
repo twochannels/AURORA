@@ -16,10 +16,13 @@ sound module for a dawless rig, built for playing rather than sequencing.
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
 - **Width**: odd partials lean left, even right (WIDTH); mono-safe.
 - **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock, a phaser.
+- **Freeze**: FREEZE holds the delay line and plays a cloud of grains off it (GRAIN their length, SPRAY how far back
+  they pick, SHIFT their pitch, an octave either way), on into the phaser and the plate: the texture stays after the
+  hands have left. Half way it smears away over a minute, at the top it holds for ever.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad; PLAY latches a drone.
 
-Early days. To come: freeze (grains on the delay line), scenes with a morph, and an autopilot.
+Early days. To come: scenes with a morph, and an autopilot.
 
 ## Building
 

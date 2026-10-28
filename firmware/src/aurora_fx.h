@@ -3,6 +3,10 @@
  * outboard. Fixed point, the lines in the pool (int16), the controls read from the patch a byte at a time.
  *   delay    one line, the input the sum of both sides; TIME, FEEDBK (with a one-pole damping in the loop),
  *            MIX; PING puts the right side on a tap at half the time
+ *   freeze   FREEZE holds the delay line (a crossfade a pass, (1 - FREEZE)^3 of the new: at full nothing new is
+ *            written, at half the old smears away over a minute) and plays eight grains off it, Hann windows at random places (SPRAY sets how far back),
+ *            lengths (GRAIN, +-12 %) and pans, at a pitch (SHIFT, +-12 semitones); the cloud goes on into the
+ *            phaser and the plate, so FREEZE on the macro holds the texture after the hands have left
  *   reverb   a feedback delay network of eight lines (a Householder matrix: every line feeds every other),
  *            two all-pass diffusers on the way in and a 20 ms pre-delay; SIZE is the decay, DAMP a one-pole
  *            low-pass in every line, MIX; SHIMMER feeds the reverb's own output back in an octave up (a two-head
@@ -19,6 +23,49 @@ static uint32_t dly_hot;                             /* writes the line had to c
 #endif                    /* the tape's wow (0.7 Hz) and flutter (6 Hz) phases */
 static int32_t dly_m16, dly_m16_d;                   /* the tape's wander, in 1/16 frames, and its step a frame across the block */
 static inline uint32_t dly_back(uint32_t back) { uint32_t p = dly_w + DLY_LEN - back; return p >= DLY_LEN ? p - DLY_LEN : p; }
+#define NGRAIN 8u
+static struct { uint32_t pos, wph, winc; int32_t pl, pr; } grain[NGRAIN];   /* the read position (16.16 frames), the window's phase and step, the pan */
+static uint32_t frz_rng = 0x3C6EF35Fu, frz_len, frz_spray, frz_rate = 65536u;   /* this block's grain length (frames), reach (frames), rate (16.16) */
+static int32_t frz_now, frz_new = 32767;               /* FREEZE, Q15, slewed over ~0.1 s; how much new the line takes a pass: (1 - FREEZE)^3 */
+static void grain_new(uint32_t g)
+{
+    uint32_t r = noise32(&frz_rng), r2 = noise32(&frz_rng), len = frz_len - (frz_len >> 3) + (((frz_len >> 2) * (r2 & 255u)) >> 8);
+    uint32_t minb = ((len * (frz_rate >> 8)) >> 8) + 4u, maxb = DLY_LEN - 4u, span = maxb - minb, back;
+    if (span > frz_spray) span = frz_spray;
+    back = minb + (((r >> 8) & 0xFFFFu) * span >> 16);
+    grain[g].pos = dly_back(back) << 16;
+    grain[g].wph = 0; grain[g].winc = 0xFFFFFFFFu / len;
+    grain[g].pl = sine_i((r2 >> 2 & 0x3FFFFFFFu) + 0x40000000u); grain[g].pr = sine_i(r2 >> 2 & 0x3FFFFFFFu);   /* constant power */
+}
+static void freeze_block(void)
+{
+    int32_t was = frz_now, target = (int32_t)patch.freeze * 258;
+    uint32_t g;
+    frz_now += (target - frz_now) >> 4;
+    frz_new = 32767 - frz_now; frz_new = mulq15(mulq15(frz_new, frz_new), frz_new);   /* 64: -1.2 dB a pass (a minute's smear), 96: -0.14, 127: held */
+    if (!frz_now) return;
+    frz_len = (441u * exp2_q15((uint32_t)patch.frz_grain * 45u)) >> 15;          /* 10 ms .. 480 ms (log) */
+    frz_spray = (882u * exp2_q15((uint32_t)patch.frz_spray * 46u)) >> 15;        /* 20 ms .. the whole line */
+    frz_rate = exp2_q15(((uint32_t)(patch.frz_shift > 24u ? 24u : patch.frz_shift) * 256u) / 3u);   /* 0.5 .. 2 (an octave either way), 16.16 */
+    if (!was) for (g = 0; g < NGRAIN; g++) { grain_new(g); grain[g].wph = noise32(&frz_rng); }   /* in at once, the windows staggered */
+}
+static inline int32_t grains_step(int32_t *gl, int32_t *gr)   /* one frame of the cloud: the sum into gl / gr */
+{
+    uint32_t g;
+    int32_t sl = 0, sr = 0;
+    for (g = 0; g < NGRAIN; g++) {
+        uint32_t p = grain[g].pos >> 16, q = p + 1u >= DLY_LEN ? 0u : p + 1u, w;
+        int32_t sm = dly_line[p] + (((dly_line[q] - dly_line[p]) * (int32_t)((grain[g].pos >> 8) & 255u)) >> 8);
+        grain[g].wph += grain[g].winc;
+        if (grain[g].wph < grain[g].winc) grain_new(g);                      /* the window wrapped: the next grain */
+        w = (uint32_t)(32767 - SINE_RAM[((grain[g].wph >> 22) + 256u) & 1023u]) >> 1;   /* Hann, (1 - cos) / 2, from the RAM table in 1024 steps */
+        sm = mulq15(sm, (int32_t)w);
+        sl += mulq15(sm, grain[g].pl); sr += mulq15(sm, grain[g].pr);
+        grain[g].pos += frz_rate; if (grain[g].pos >= (DLY_LEN << 16)) grain[g].pos -= DLY_LEN << 16;
+    }
+    *gl = sl; *gr = sr;
+    return 0;
+}
 static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place */
 {
     uint32_t i, time = patch.dly_sync ? sync_dly : DLY_TIME[patch.dly_time], half = time >> 1;
@@ -32,13 +79,20 @@ static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place
         dly_m16_d = (target - dly_m16) / (int32_t)n;
     } else dly_m16 = dly_m16_d = 0;
     if (damp < 4000) damp = 4000;
-    if (!mix) {                                     /* off: the line keeps filling, so turning MIX up finds a tail */
+    freeze_block();
+    if (!mix) fb = 0;                               /* MIX off: the line holds the dry alone, so turning MIX up finds a clean tail */
+    if (!mix && !frz_now) {                         /* off: the line keeps filling, so turning MIX up finds a tail */
         for (i = 0; i < n; i++) { dly_line[dly_w] = (int16_t)clamp((st[2u * i] + st[2u * i + 1u]) >> 1, -32767, 32767); if (++dly_w == DLY_LEN) dly_w = 0; }
         return;
     }
     for (i = 0; i < n; i++) {
         int32_t in = (st[2u * i] + st[2u * i + 1u]) >> 1;
         int32_t tap, tap2, back;
+        if (frz_now) {                              /* the cloud, at FREEZE x -2.7 dB a grain, before the line is written */
+            int32_t gl, gr, lvl = mulq15(frz_now, 24000);
+            grains_step(&gl, &gr);
+            st[2u * i] += mulq15(gl, lvl); st[2u * i + 1u] += mulq15(gr, lvl);
+        }
         if (tape) {                                 /* read between frames at the wandering position */
             uint32_t fr, a, b;
             dly_m16 += dly_m16_d; m16 = dly_m16 + 32 * 16;   /* kept positive */
@@ -56,7 +110,9 @@ static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place
         { int32_t f = mulq15r(dly_lp, fb);
           if (tape) f = softclip(mulq15(f, drive)) - mulq15(softclip(mulq15(f, drive)), tape * 100);   /* saturates, then a little less level */
           if (in + f > 32767 || in + f < -32767) dly_hot++;
-          dly_line[dly_w] = (int16_t)clamp(in + f, -32767, 32767); }
+          f = clamp(in + f, -32767, 32767);
+          if (frz_now) f = dly_line[dly_w] + mulq15(f - dly_line[dly_w], frz_new);   /* held: the old stays, the new comes in by what FREEZE leaves */
+          dly_line[dly_w] = (int16_t)f; }
         if (++dly_w == DLY_LEN) dly_w = 0;
         st[2u * i] += mulq15(tap, mix);
         st[2u * i + 1u] += mulq15(tap2, mix);

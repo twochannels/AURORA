@@ -17,12 +17,13 @@
  *                sources' amounts and the destinations' depths are knobs, MOVE scales it all, RATE its speed, and
  *                DRIFT is a random walk on every partial besides
  *   width        odd partials lean left, even right, by WIDTH: the pad is as wide as you like, mono-safe
- *   space        the plate and its shimmer, the tape delay and the phaser from CS-1
+ *   space        the plate and its shimmer, the tape delay and the phaser from CS-1; FREEZE holds the delay line and
+ *                scatters grains over it (GRAIN their length, SPRAY how far back they pick, SHIFT their pitch)
  *   MIDI         notes on the MIDI page's channel; CC 80..87 are the eight macros, in the Circuit Tracks' order:
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
  *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands)
- *   pages        HOME (the macros, a weather strip), EDIT: PAD, PAD 2; LFO: MOVE; FX: SPACE, DELAY, PHASER;
+ *   pages        HOME (the macros, a weather strip), EDIT: PAD .. AIR; LFO: MOVE .. TARGETS; FX: SPACE, DELAY, PHASER, FREEZE;
  *                GLO: MIDI. KNOB 1..4 the page's parameters. The panel is kept 2 s after the last change.
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. tests/host.c runs this file
  * on a computer; web/emu in the browser. */
@@ -51,6 +52,7 @@ typedef struct {
     uint8_t dly_time, dly_fb, dly_mix, dly_ping, dly_damp, dly_sync, dly_tape;   /* the delay (aurora_fx.h) */
     uint8_t rv_mix, rv_size, rv_damp, rv_shim, rv_shift;         /* the plate and its shimmer */
     uint8_t ph_rate, ph_depth, ph_fb, ph_mix;                    /* the phaser */
+    uint8_t freeze, frz_grain, frz_spray, frz_shift;              /* FREEZE: the delay line held, grains over it (aurora_fx.h) */
     uint8_t volume;
 } patch_t;
 static patch_t patch;
@@ -63,10 +65,12 @@ static const patch_t INIT_PATCH = {
     .dly_time = 90, .dly_fb = 50, .dly_mix = 0, .dly_ping = 1, .dly_damp = 50, .dly_sync = 0, .dly_tape = 40,
     .rv_mix = 60, .rv_size = 100, .rv_damp = 50, .rv_shim = 0, .rv_shift = 12,
     .ph_rate = 20, .ph_depth = 64, .ph_fb = 30, .ph_mix = 0,
+    .freeze = 0, .frz_grain = 80, .frz_spray = 70, .frz_shift = 12,
     .volume = 100,
 };
 static volatile uint32_t sync_dly;                 /* the delay's time from the MIDI clock, frames (the main loop's) */
 static int32_t rv_mix_now;                         /* SPACE this block, 0..127: the knob plus the movement */
+static int16_t SINE_RAM[1024];                        /* the sine table copied out of the flash: the oscillators read it 12 times a frame */
 #include "aurora_fx.h"
 
 /* ---- the voices (the render's, but for the main loop's note, vel, gate, trig, at) */
@@ -93,7 +97,6 @@ static volatile int32_t bend256;                   /* pitch bend, 1/256 semitone
 static volatile uint8_t press;                     /* channel pressure / expression, 0..127 (the main loop's) */
 static int32_t g_l[2][HALF_FRAMES], g_r[2][HALF_FRAMES];   /* each core's voices, left and right */
 static int32_t osc_acc[2][2][HALF_FRAMES];           /* each core's odd and even partial sums for the voice in hand */
-static int16_t SINE_RAM[1024];                        /* the sine table copied out of the flash: the oscillators read it 12 times a frame */
 static inline int32_t sine_r(uint32_t ph)
 {
     uint32_t i = ph >> 22;
@@ -109,11 +112,6 @@ static volatile int32_t out_peak;
 /* ---- the movement: the global sources once a block (the first core, before the hand-off), then the four
  * destinations' offsets this block. WANDER lives in each voice (voice_block). Sources are Q15 around 0. */
 static int32_t mv_fb;                              /* RATE as a frequency a block, Q16: 0.01 Hz (0) .. 2 Hz (127), log */
-static inline uint32_t exp2_q15(uint32_t e)        /* 2^(e / 1024) in Q15, e < 16 x 1024 */
-{
-    uint32_t fr = e & 1023u, m = fr ? (uint32_t)EXP2N_Q15[(1024u - fr) >> 2] * 2u : 32768u;   /* 2^(fr / 1024) = 2 x 2^(fr / 1024 - 1) */
-    return m << (e >> 10);
-}
 /* a random LFO: a new random target now and then (at the rate), slewed towards at the rate: smooth at any speed */
 static inline void random_lfo(int32_t *v, int32_t *target, uint32_t *rng)
 {
@@ -450,17 +448,17 @@ typedef struct {
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA5u
+#define SET_MAGIC 0xA6u
 
 /* ---- the pages */
-enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_DIV };
+enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_DIV, K_SEMI };
 enum { CW = 0, CG, CR, CK, CY, CS };                     /* a cap: white, green, red, black, yellow, silver */
 typedef struct { const char *name; uint8_t off, max, kind, global, color; const char *hi, *lo; } pdesc_t;
 #define PA(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0, c, hi, lo}
 #define ST(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1, c, hi, lo}
 #define NONE {0, 0, 0, 0, 0, 0, 0, 0}
 typedef struct { const char *title; pdesc_t p[4]; } page_t;
-enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_FREEZE, PG_MIDI, NPAGE };
 static const page_t PAGES[NPAGE] = {
     {"AURORA", {NONE, NONE, NONE, NONE}},
     {"PAD",    {PA(tilt, "TILT", 127, K_NUM, CW, "DARK", "FULL"), PA(spread, "SPREAD", 127, K_NUM, CW, "EVEN", "ODD"),
@@ -484,15 +482,17 @@ static const page_t PAGES[NPAGE] = {
                 PA(dly_mix, "MIX", 127, K_NUM, CS, "10", "0"), PA(dly_tape, "TAPE", 127, K_NUM, CY, "10", "0")}},
     {"PHASER", {PA(ph_rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"), PA(ph_depth, "DEPTH", 127, K_NUM, CG, "10", "0"),
                 PA(ph_fb, "FEEDBK", 127, K_NUM, CR, "10", "0"), PA(ph_mix, "MIX", 127, K_NUM, CS, "10", "0")}},
+    {"FREEZE", {PA(freeze, "FREEZE", 127, K_NUM, CS, "10", "0"), PA(frz_grain, "GRAIN", 127, K_NUM, CW, "LONG", "SHORT"),
+                PA(frz_spray, "SPRAY", 127, K_NUM, CY, "WIDE", "TIGHT"), PA(frz_shift, "SHIFT", 24, K_SEMI, CG, "+12", "-12")}},
     {"MIDI",   {ST(midi_chan, "CHAN", 16, K_MCHAN, CW, "16", "OMNI"), ST(expr, "EXPR", 127, K_EXPR, CW, "CC", "AT"), NONE, NONE}},
 };
 static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
-                                             {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
+                                             {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
     {"MOVE", offsetof(patch_t, move)}, {"SPACE", offsetof(patch_t, rv_mix)}, {"AIR", offsetof(patch_t, air)}, {"TILT", offsetof(patch_t, tilt)},
-    {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, dly_fb)}, {"BLOOM", offsetof(patch_t, bloom)}};
+    {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, freeze)}, {"BLOOM", offsetof(patch_t, bloom)}};
 
 /* ---- the screen */
 #define C_PANEL RGB(14, 16, 24)                           /* a night sky */
@@ -521,6 +521,7 @@ static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
     case K_ONOFF: src = N_ONOFF[v & 1u]; break;
     case K_MCHAN: if (!v) src = "OMNI"; break;
     case K_EXPR: if (!v) src = "AT"; break;
+    case K_SEMI: n -= 12; if (n < 0) { s[i++] = '-'; n = -n; } else if (n > 0) s[i++] = '+'; break;
     default: break;
     }
     if (src) { while (*src) s[i++] = *src++; s[i] = 0; return; }
@@ -704,7 +705,7 @@ static void app_loop(void)
     if (b & (1u << BTN_HOME)) page = PG_HOME;
     if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_AIR ? page + 1u : PG_PAD;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
-    if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_PHASER ? page + 1u : PG_SPACE;
+    if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_FREEZE ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
     if (b & (1u << BTN_PLAY)) { set.latch ^= 1u; if (!set.latch && !sustain) release_all(); changed(); status_drawn = ~0u; }   /* LATCH: a drone with no hands */
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
@@ -759,7 +760,7 @@ static void app_loop(void)
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_AIR);
-    fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_PHASER); fm1_led_key(BTN_GLO, page == PG_MIDI);
+    fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_FREEZE); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch);
     {
         static int32_t load_acc, wload_acc;
