@@ -22,7 +22,8 @@
  *   MIDI         notes on the MIDI page's channel; CC 80..87 are the eight macros, in the Circuit Tracks' order:
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
- *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands)
+ *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands); SELECT is the pressure
+ *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
  *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SWARM AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
  *                shift, each part in the colour of its knob. The panel is kept 2 s after the last change.
@@ -93,6 +94,7 @@ typedef struct {
 } voice_t;
 static voice_t voices[NV];
 static volatile int32_t bend256;                   /* pitch bend, 1/256 semitone */
+static volatile int32_t bend_knob;                 /* the ALGORITHM encoder's bend on HOME, springing back */
 static volatile uint8_t press;                     /* channel pressure / expression, 0..127 (the main loop's) */
 static int32_t g_l[2][HALF_FRAMES], g_r[2][HALF_FRAMES];   /* each core's voices, left and right */
 static int32_t osc_acc[2][2][HALF_FRAMES];           /* each core's odd and even partial sums for the voice in hand */
@@ -177,7 +179,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     uint32_t k, i, trig = w->trig;
     int32_t target[NP], from[NP], env_q15, pr = press * 258, sum = 0;
     int32_t tilt16 = (int32_t)patch.tilt * 16 + mv_tilt16, spread = (int32_t)patch.spread - 64 + mv_spread, bright = (int32_t)patch.bright + mv_spread;
-    int32_t pitch256 = (int32_t)w->note * 256 + bend256 + mv_pitch256;
+    int32_t pitch256 = (int32_t)w->note * 256 + bend256 + bend_knob + mv_pitch256;
     int32_t swell = mulq15(pr, (int32_t)patch.swell * 258);        /* 0..32767: pressure opening the pad */
     int32_t wl, wr, width = (int32_t)patch.width * 258;
     if (trig != w->seen) {                         /* a new note */
@@ -716,6 +718,8 @@ static void draw_aurora(void)
             if (hit) row[x] = swap16(p);
         }
     }
+    if (press) cv_rect(0, GH - 2, (int32_t)press * 240 / 127, 2, KC[1]);                      /* the pressure, along the bottom */
+    if (bend_knob) { cv_vline(120, GH - 8, GH - 3, C_RULE); cv_rect(120 + bend_knob / 8 - 1, GH - 8, 3, 5, KC[3]); }   /* the bend, off centre */
     {   /* stars, and the air's sparks */
         uint32_t s = 0x1234567u, i, n = 24u + (uint32_t)patch.air * 40u / 127u;
         for (i = 0; i < n; i++) {
@@ -1118,7 +1122,9 @@ static void app_loop(void)
         set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NPRESET * 4) % (int32_t)NPRESET);
         preset_build(set.preset, &patch); set.patch = patch; changed(); page_drawn = ~0u;
     }
-    if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page != PG_HOME) {   /* ALGORITHM: the group's pages, either way */
+    if ((n = fm1_enc_take(ENC_SELECT)) != 0) press = (uint8_t)clamp((int32_t)press + n * 4, 0, 127);   /* SELECT: the pressure, with no hands to press: the swell */
+    if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page == PG_HOME) bend_knob = clamp(bend_knob + n * 64, -512, 512);   /* HOME: a bend, springing back */
+    else if (n != 0) {                                                   /* ALGORITHM elsewhere: the group's pages, either way */
         uint32_t first = PAGE_GROUP[page][0], cnt = PAGE_GROUP[page][1];
         page = first + (uint32_t)(((int32_t)(page - first) + n + (int32_t)cnt * 4) % (int32_t)cnt);
     }
@@ -1178,7 +1184,7 @@ static void app_loop(void)
         load_now = (uint32_t)(load_acc >> 6); wload_now = (uint32_t)(wload_acc >> 6);
     }
     if (page != page_drawn) { page_drawn = page; draw_page(); status_drawn = ~0u; }
-    if (fm1_ms - strip_ms >= 100u) { strip_ms = fm1_ms; hist_tick(); if (PAGES[page].live) draw_graphic(); }   /* the live graphics, ten a second */
+    if (fm1_ms - strip_ms >= 100u) { strip_ms = fm1_ms; hist_tick(); bend_knob -= bend_knob / 4; if (PAGES[page].live) draw_graphic(); }   /* the live graphics, ten a second; the bend's spring */
     k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14;
     if (k != status_drawn) { status_drawn = k; draw_status(oct(), nv); }
     if (out_peak > 512) loud_ms = fm1_ms;              /* (quiet is what matters: a pad's tail can run for half a minute) */
