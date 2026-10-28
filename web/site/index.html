@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AURORA: an ambient instrument for the M-VAVE FM-1</title>
-<meta name="description" content="AURORA turns the M-VAVE FM-1 into an ambient texture instrument: a wide spectral pad that keeps moving on its own, a plate with a shimmer, a tape delay, and eight macros over MIDI. A sound module for a dawless rig.">
+<meta name="description" content="AURORA turns the M-VAVE FM-1 into an ambient texture instrument: a wide spectral pad that keeps moving on its own, a plate with a shimmer, a tape delay, a freeze, and a screen where every page is a picture the four knobs shift. A sound module for a dawless rig.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%223%22 fill=%22%230e1018%22/%3E%3Cpath d=%22M1 11 Q5 6 8 9 T15 7 V14 H1Z%22 fill=%22%2378e6be%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
 <link rel="stylesheet" href="site.css">
@@ -17,34 +18,149 @@
     <nav><a href="install.html">Install</a><a href="emu/">Play it</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
   </header>
 
-  <p class="lead">A custom firmware for the M-VAVE FM-1: big, wide sounds that keep moving on their own and bend to MIDI.</p>
-  <p class="lead">A pad of sine partials that tilts, spreads and drifts; a plate that goes on for ever, with a shimmer; a tape delay; and the Circuit Tracks' eight macros as eight named controls. A sound module for playing, not a groovebox: your sequencer sequences, AURORA sounds.</p>
-  <p class="aside">Early days. The spectral pad, the swarm, the air, the movement, the plate, the delay and the freeze are in; scenes are on the way.</p>
-  <p><a class="try" href="emu/">Play it in your browser</a></p>
+  <div class="sky" id="sky">
+    <canvas id="aurora" width="960" height="320" aria-hidden="true"></canvas>
+    <div class="over">
+      <h1>AURORA</h1>
+      <p>Big, wide sounds that keep moving on their own. The sky above is the sound, drawn live, the way the FM-1's screen draws it.</p>
+    </div>
+    <div class="k" aria-hidden="true"><i style="--c: var(--k1); --v: 55%"></i><i style="--c: var(--k2); --v: 47%"></i><i style="--c: var(--k3); --v: 16%"></i><i style="--c: var(--k4); --v: 0%"></i></div>
+  </div>
 
-  <h2 id="what">What is in it</h2>
-  <ul>
-    <li><b>The pad.</b> Eight voices of twelve sine partials, each with an ADSR envelope and velocity. TILT sets how fast the partials fall off, SPREAD balances odd against even partials from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry so a chord opens slowly, and DETUNE spreads each low partial into a slightly detuned pair, so the pad shimmers and the beats between a chord's notes are smeared into it rather than pulsing bare.</li>
-    <li><b>The swarm.</b> Body under the pad: five saws a little apart, each wandering on its own, through a low-pass that tracks the note, opens with CUTOFF, darkens with TILT and bends with the movement and with pressure. LEVEL brings it in, from nothing to as loud as the pad.</li>
-    <li><b>The air.</b> Noise, shaped: wind against crackle, through a resonant band-pass on each side whose colour you set with TONE and which wanders on its own at RATE. It swells in with the pad and lingers after the chord has gone, and it breathes on its own, in and out, slow and uneven, at the pace BREATH sets, or held steady at 0. AIR, the third macro, sets how much.</li>
-    <li><b>Movement.</b> Four slow sources: WANDER, a random LFO living in every voice; WALK, a random walk; CHAOS, a Lorenz attractor; and TIDE, a slow sine over bars of the MIDI clock, or over minutes without one. They flow through a fixed pattern into TILT, COLOUR, PITCH and SPACE, each source's amount and each destination's depth a knob, MOVE scaling it all and RATE its speed. A random walk on every partial, DRIFT, on top. Nothing sits still unless you tell it to.</li>
-    <li><b>Width.</b> Odd partials lean left, even right, by WIDTH. Mono-safe.</li>
-    <li><b>Space.</b> A Dattorro plate with a shimmer at any interval and a tape delay that syncs to MIDI clock.</li>
-    <li><b>Freeze.</b> FREEZE, the seventh macro, holds the delay line and plays a cloud of grains off it: GRAIN sets their length, SPRAY how far back they pick, SHIFT their pitch, an octave either way. The cloud goes on into the phaser and the plate, so the texture stays after the hands have left. Half way up it smears away over a minute; at the top it holds for ever, and new notes layer into it as much as the knob lets them.</li>
-    <li><b>The screen.</b> Every page is a picture the four knobs shift, each part drawn in the colour of the knob that moves it: the spectrum on TONE, the ADSR on SHAPE, bloom, swell and velocity on TOUCH, the saws under their filter on SWARM, the wind on AIR, the sources' traces on MOVE, the matrix on SOURCES and TARGETS, the tail on SPACE, the repeats on DELAY, the grains on their line on FREEZE. HOME is the aurora itself, bent by the movement's own sources and lit by what you play, with TILT, SPACE, AIR and FREEZE under the knobs.</li>
-    <li><b>Presets.</b> Twelve to start from, turned through with the PRESETS encoder or picked by program change: the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM), the thick (SWARM, SUB), ORGAN, and the struck (GLASS, MALLET, PLUCK). HOME shows the name, starred once you have changed the sound.</li>
-    <li><b>Expression.</b> CC 80 to 87, the Circuit Tracks' macro knobs, are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE and BLOOM. Channel pressure or an expression CC swells the pad open, and so does the SELECT encoder when there is no controller; ALGORITHM on HOME bends the pitch and springs back. PLAY latches a drone with no hands on the keys.</li>
-  </ul>
+  <p class="lead">A custom firmware for the M-VAVE FM-1: a pad of sine partials that tilts, spreads and drifts, a swarm of saws under it, wind and crackle over it, a plate that goes on for ever, a tape delay, a freeze that holds the moment in grains, and the Circuit Tracks' eight macros as eight named controls.</p>
+  <p class="lead">A sound module for playing, not a groovebox: your sequencer sequences, AURORA sounds. Every page of its screen is a picture the four knobs shift.</p>
+  <p><a class="try" href="emu/">Play it in your browser</a> <a class="try b" href="install.html">Install it on an FM-1</a></p>
+  <p class="aside">Early days. The pad, the swarm, the air, the movement, the plate, the delay, the freeze and twelve presets are in; scenes with a morph and an autopilot are on the way.</p>
 
-  <h2 id="install">Install</h2>
-  <p>From the <a href="install.html">install page</a> in Chrome or Edge, with the FM-1 on its USB cable, or from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>. The rescue, holding OCT− at power-on, is always there, and the official firmware and any other custom firmware install over AURORA the same way.</p>
+  <h2 id="sky-h">The sky is the sound</h2>
+  <div class="shot" style="grid-template-columns: minmax(200px, 320px) 1fr; align-items: start">
+    <figure><img src="img/home.png" width="480" height="480" alt="The HOME page: an aurora over four knob values, TILT SPACE AIR FREEZE"><figcaption>HOME, with the CHOIR preset and four notes held.</figcaption></figure>
+    <div>
+      <p>HOME is an aurora. Three curtains of light cross the screen, bent live by the instrument's own movement sources: the random walk, the chaos and the tide that bend the sound bend the sky. What you have set colours it and shapes it. TILT sets the green from pale to deep, SPREAD the colour at the top from blue to red, BRIGHT the height, WIDTH the wavelength, RATE the drift. SPACE lays a haze over it, AIR puts sparks in it and sharpens the rays, FREEZE ices it and stops the drift. Every held note is a ray at its pitch, and the whole sky glows with the envelopes.</p>
+      <p>Under it, the four knobs for playing: <span class="kn k1">TILT</span> <span class="kn k2">SPACE</span> <span class="kn k3">AIR</span> <span class="kn k4">FREEZE</span>. A preset's name is the title, starred once you have changed the sound.</p>
+    </div>
+  </div>
 
-  <h2 id="rig">In a dawless rig</h2>
+  <h2 class="b" id="pages">Every page is a picture</h2>
+  <p>The four knobs have four colours, green, blue, violet and amber from left to right, and on every page each part of the picture is drawn in the colour of the knob that moves it. Turn a knob and watch its part of the picture change. The buttons step through their groups: EDIT for the tone, ENV for the envelope and the touch, LFO for the movement, FX for the space.</p>
+  <div class="pages">
+    <figure><img src="img/tone.png" width="480" height="480" alt="TONE: the twelve partials as bars"><figcaption><b>TONE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The twelve partials as bars, at their real levels. TILT is the slope they fall down, SPREAD leans odd against even, BRIGHT a ceiling they fade under, DETUNE splits the low ones into pairs.</figcaption></figure>
+    <figure><img src="img/swarm.png" width="480" height="480" alt="SWARM: five saws under a filter curve"><figcaption><b>SWARM</b><span class="knobs"><i></i><i></i><i></i><i></i></span>Five saws under the pad, fanned apart by SPREAD, through a low-pass that tracks the note: CUTOFF opens it, RESO is the bump on its curve. LEVEL brings them in.</figcaption></figure>
+    <figure><img src="img/air.png" width="480" height="480" alt="AIR: a wind trace under a band-pass hump"><figcaption><b>AIR</b><span class="knobs"><i></i><i></i><i></i><i></i></span>Noise, shaped: the wind as a trace that widens with AIR, the band's hump at TONE, crackle sparks by TEXTURE, and a bar that fills and empties as it breathes, at BREATH's pace.</figcaption></figure>
+    <figure><img src="img/shape.png" width="480" height="480" alt="SHAPE: an ADSR envelope curve"><figcaption><b>SHAPE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The envelope: ATTACK, DECAY, SUSTAIN, RELEASE as one curve, and a dot riding it where the loudest voice is now.</figcaption></figure>
+    <figure><img src="img/touch.png" width="480" height="480" alt="TOUCH: bloom stairs, swell lift, velocity line"><figcaption><b>TOUCH</b><span class="knobs"><i></i><i></i><i></i><i></i></span>How it answers the hands: BLOOM staggers the partials' entry so a chord opens outward, SWELL is how far pressure lifts it, VELO how much a soft note gives, VOLUME.</figcaption></figure>
+    <figure><img src="img/move.png" width="480" height="480" alt="MOVE: four sources scrolling"><figcaption><b>MOVE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>Twelve seconds of the four sources scrolling by, each drawn dim as it is and bright as MOVE lets it through. RATE their speed, DRIFT a partial's own walk, WIDTH the stereo.</figcaption></figure>
+    <figure><img src="img/sources.png" width="480" height="480" alt="SOURCES: the movement matrix"><figcaption><b>SOURCES</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The matrix. WANDER, a random LFO in every voice; WALK, a random walk; CHAOS, a Lorenz attractor; TIDE, a slow sine over bars of the MIDI clock. A float on each rail shows where it is now.</figcaption></figure>
+    <figure><img src="img/targets.png" width="480" height="480" alt="TARGETS: the movement matrix, by column"><figcaption><b>TARGETS</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The same matrix by its columns: how deep the movement goes into TILT, COLOUR, PITCH and SPACE. A dot grows where a source drives a target.</figcaption></figure>
+    <figure><img src="img/space.png" width="480" height="480" alt="SPACE: a decaying tail"><figcaption><b>SPACE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The plate's tail, falling as SIZE says, the highs under it falling faster by DAMP, sparks climbing out of it for SHIMMER. MIX is how much of it you hear.</figcaption></figure>
+    <figure><img src="img/delay.png" width="480" height="480" alt="DELAY: a note and its repeats"><figcaption><b>DELAY</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The note and its repeats, spaced by TIME, dying by FEEDBACK, as loud as MIX, leaning over as TAPE wobbles and warms them. It syncs to MIDI clock.</figcaption></figure>
+    <figure><img src="img/freeze.png" width="480" height="480" alt="FREEZE: grains on the delay line"><figcaption><b>FREEZE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The delay line, its write head, and the grains playing off it, live. FREEZE how long it holds (for ever at the top), GRAIN their length, SPRAY how far back they pick, SHIFT their pitch.</figcaption></figure>
+    <figure><img src="img/midi.png" width="480" height="480" alt="MIDI: channel and expression"><figcaption><b>MIDI</b><span class="knobs"><i></i><i></i></span>The channel, what swells the pad, the macros, whether a clock is coming in, and a light for every message.</figcaption></figure>
+  </div>
+
+  <h2 class="v" id="presets">Twelve places to start</h2>
+  <p>Turn the PRESETS encoder, on any page, or send a program change. From the slow and vast to the short and struck:</p>
+  <div class="presets">
+    <div><b>AURORA</b><span>the pad as it comes</span></div>
+    <div><b>DEEP</b><span>six seconds to arrive, half a minute to leave, everything moving</span></div>
+    <div><b>TIDE</b><span>the tide driving the space over minutes</span></div>
+    <div><b>CHOIR</b><span>detuned pairs, a little swarm under, wide</span></div>
+    <div><b>ICE</b><span>bright and hollow, the air crackling, a shimmer an octave up</span></div>
+    <div><b>STORM</b><span>the air at full, chaos into the tone, tape echo feeding back</span></div>
+    <div><b>SWARM</b><span>the saws loud and resonant, every partial drifting</span></div>
+    <div><b>SUB</b><span>the fundamental alone over a low swarm</span></div>
+    <div><b>ORGAN</b><span>instant on, instant off, full even partials</span></div>
+    <div><b>GLASS</b><span>a struck bell, odd partials, falling while held</span></div>
+    <div><b>MALLET</b><span>darker and shorter, with a tape echo</span></div>
+    <div><b>PLUCK</b><span>the shortest, swarm-bright, an echo behind it</span></div>
+  </div>
+
+  <h2 class="a" id="panel">The panel</h2>
+  <div class="panel">
+    <div><b>KNOB 1..4</b><span>the page's four controls, each in its colour</span></div>
+    <div><b>PRESETS</b><span>the presets, on any page</span></div>
+    <div><b>EDIT</b><span>TONE, SWARM, AIR</span></div>
+    <div><b>ENV</b><span>SHAPE, TOUCH</span></div>
+    <div><b>LFO</b><span>MOVE, SOURCES, TARGETS</span></div>
+    <div><b>FX</b><span>SPACE, DELAY, FREEZE</span></div>
+    <div><b>HOME</b><span>the sky</span></div>
+    <div><b>GLO</b><span>MIDI</span></div>
+    <div><b>ALGORITHM</b><span>the group's other pages; on HOME, a pitch bend that springs back</span></div>
+    <div><b>SELECT</b><span>pressure, with no aftertouch to press: the swell</span></div>
+    <div><b>PLAY</b><span>latch: a drone with no hands on the keys</span></div>
+    <div><b>OCT&minus; OCT+</b><span>the octave; both at once silences everything</span></div>
+  </div>
+
+  <h2 id="midi">Over MIDI</h2>
+  <table>
+    <tr><th>CC 80..87</th><td>the eight macros, in the Circuit Tracks' order: <span class="kn k1">MOVE</span> <span class="kn k2">SPACE</span> <span class="kn k3">AIR</span> <span class="kn k4">TILT</span> <span class="kn k1">WIDTH</span> <span class="kn k2">DRIFT</span> <span class="kn k3">FREEZE</span> <span class="kn k4">BLOOM</span></td></tr>
+    <tr><th>Channel pressure, or an expression CC</th><td>swells the pad open, as far as SWELL allows</td></tr>
+    <tr><th>Velocity</th><td>the level, as much as VELO says</td></tr>
+    <tr><th>Program change</th><td>a preset</td></tr>
+    <tr><th>Clock, start</th><td>the delay's sync, and the tide's bars</td></tr>
+    <tr><th>Sustain, pitch bend, CC 7</th><td>as you would expect</td></tr>
+  </table>
+
+  <h2 class="b" id="install">Install</h2>
+  <p>From the <a href="install.html">install page</a> in Chrome or Edge, with the FM-1 on its USB cable, or from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>. The rescue, holding OCT&minus; at power-on, is always there, and the official firmware and any other custom firmware install over AURORA the same way.</p>
+
+  <h2 class="v" id="rig">In a dawless rig</h2>
   <p>Plug the sequencer's MIDI out into the FM-1's TRS jack (the FM-1 is TRS type A). Set the channel on the MIDI page, or leave it at OMNI. Hold chords from the sequencer, send the macros from its knobs, and let the movement do the rest.</p>
 
-  <h2 id="credits">Credits and licence</h2>
+  <h2 class="a" id="credits">Credits and licence</h2>
   <p>AURORA is by twochannels, GPL-3.0, on the same platform as <a href="https://github.com/twochannels/CS-1">CS-1</a>: Dinghy (Sven Trogus), with Felucca and SLOOP's hardware layer (Leo Kuroshita, Hügelton Instruments), FM-106's dual-core worker (PattF), and Felucca's web installer.</p>
   <footer><small>M-VAVE and FM-1 are their owners' marks. AURORA is not made or endorsed by any of them.</small></footer>
 </main>
+<script>
+/* The sky: the firmware's curtains, in the page. Three curtains, each a sum of two waves, bent by slow random
+ * walks standing in for the instrument's sources, lit from a sharp lower edge up into a long fade. */
+(() => {
+  const cv = document.getElementById("aurora"), g = cv.getContext("2d");
+  if (!g) return;
+  const W = cv.width, H = cv.height, img = g.createImageData(W, H), px = img.data;
+  const PROF = [150, 255, 245, 232, 218, 204, 190, 176, 163, 150, 138, 126, 115, 104, 94, 84, 75, 66, 58, 50, 43, 37, 31, 26, 21, 17, 13, 10, 7, 5, 3, 1];
+  const BASE = [0.80, 0.60, 0.44], AMP1 = [0.11, 0.08, 0.06], AMP2 = [0.05, 0.04, 0.03], TH = [0.42, 0.28, 0.20];
+  const LO = [[60, 220, 150], [80, 200, 220], [120, 140, 255]], HI = [[120, 80, 230], [150, 80, 230], [200, 90, 200]];
+  const SKY = [14, 16, 24];
+  const walk = [0, 0, 0], target = [0, 0, 0];
+  const stars = Array.from({ length: 70 }, (_, i) => [((i * 7919) % 997) / 997, ((i * 104729) % 991) / 991, 0.25 + ((i * 31) % 7) / 10]);
+  let t = 0, last = 0;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function frame(now) {
+    if (now - last < 50) { requestAnimationFrame(frame); return; }
+    last = now; t += 0.05;
+    for (let c = 0; c < 3; c++) {
+      if (Math.random() < 0.004) target[c] = (Math.random() - 0.5) * 0.3;
+      walk[c] += (target[c] - walk[c]) * 0.01;
+    }
+    const kx = (2 * Math.PI) / (W * 0.75), kx2 = kx * 2.3, yc = [[], [], []], ray = new Float32Array(W);
+    for (let x = 0; x < W; x++) {
+      for (let c = 0; c < 3; c++)
+        yc[c][x] = (BASE[c] + walk[c] + AMP1[c] * Math.sin(x * kx + t * 0.5 + c * 1.1) + AMP2[c] * Math.sin(x * kx2 - t * 0.75 + c * 1.9)) * H;
+      ray[x] = 0.5 + 0.4 * Math.sin(x * kx * 3 + t * 1.0) + 0.1 * Math.sin(x * kx * 11 - t * 2.2);
+    }
+    let p = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++, p += 4) {
+      let r = SKY[0], gg = SKY[1], b = SKY[2];
+      for (let c = 2; c >= 0; c--) {
+        const d = yc[c][x] - y, th = TH[c] * H;
+        if (d < 0 || d >= th) continue;
+        const f = d / th, i = f * 31 | 0, a = (PROF[i] / 255) * ray[x] * 0.9;
+        const lo = LO[c], hi = HI[c];
+        const cr = lo[0] + (hi[0] - lo[0]) * f, cg = lo[1] + (hi[1] - lo[1]) * f, cb = lo[2] + (hi[2] - lo[2]) * f;
+        r += (cr - r) * a; gg += (cg - gg) * a; b += (cb - b) * a;
+      }
+      px[p] = r; px[p + 1] = gg; px[p + 2] = b; px[p + 3] = 255;
+    }
+    for (const [sx, sy, sb] of stars) {
+      const q = ((sy * H | 0) * W + (sx * W | 0)) * 4, v = 120 * sb * (0.7 + 0.3 * Math.sin(t * 3 + sx * 40));
+      px[q] = Math.max(px[q], v); px[q + 1] = Math.max(px[q + 1], v); px[q + 2] = Math.max(px[q + 2], v + 20);
+    }
+    g.putImageData(img, 0, 0);
+    if (!reduced) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
 </body>
 </html>
