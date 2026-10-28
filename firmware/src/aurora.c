@@ -23,7 +23,9 @@
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
  *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands); REC held is FREEZE at full;
- *                SEQ is the autopilot (nine controls wander round where they are set); SELECT is the pressure
+ *                SEQ is the autopilot (nine controls wander round where they are set); ARP morphs to scene B over
+ *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
+ *                SELECT is the pressure
  *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
  *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SWARM AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
@@ -465,11 +467,11 @@ static uint32_t voices_sounding(void)
 
 /* ---- what survives a power-off */
 typedef struct {
-    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset;
+    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b;   /* scene_b: the preset ARP morphs to */
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA8u
+#define SET_MAGIC 0xA9u
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
 enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI };
 typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
@@ -536,17 +538,50 @@ static const preset_t PRESETS[] = {
                D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), END}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
+/* the user bank: sixteen slots after the twelve, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
+#define NUSER 16u
+#define NALL (NPRESET + NUSER)
+#define USLOT_MAGIC 0x5Au
+typedef struct { uint8_t magic; patch_t p; } uslot_t;
+static uslot_t bank[NUSER];
+static char uname[8];
 static void preset_build(uint32_t i, patch_t *p)
 {
     const pdelta_t *d;
+    i %= NALL;
+    if (i >= NPRESET) { if (bank[i - NPRESET].magic == USLOT_MAGIC) { *p = bank[i - NPRESET].p; return; } i = 0; }
     *p = BASE_PATCH;
-    for (d = PRESETS[i % NPRESET].d; d->off != 255u; d++) ((uint8_t *)p)[d->off] = d->v;
+    for (d = PRESETS[i].d; d->off != 255u; d++) ((uint8_t *)p)[d->off] = d->v;
+}
+static const char *preset_name(uint32_t i)
+{
+    i %= NALL;
+    if (i < NPRESET) return PRESETS[i].name;
+    i -= NPRESET - 1u;
+    uname[0] = 'U'; uname[1] = 'S'; uname[2] = 'E'; uname[3] = 'R'; uname[4] = ' ';
+    if (i >= 10u) { uname[5] = (char)('0' + i / 10u); uname[6] = (char)('0' + i % 10u); uname[7] = 0; } else { uname[5] = (char)('0' + i); uname[6] = 0; }
+    return uname;
+}
+/* scenes: A is the sound as set (set.patch), B another preset (set.scene_b, a copy in RAM you can edit while there);
+ * ARP morphs between them over four seconds, SEL cuts. The knobs edit the scene you are at. */
+static patch_t scene_b;
+static int32_t morph, morph_to;                  /* 0 at A .. 32767 at B, and where it is going */
+static uint8_t save_mode, save_slot;             /* SAVE: picking a slot with PRESETS */
+static uint8_t *scene_ptr(uint32_t off) { return (morph_to && morph == 32767 ? (uint8_t *)&scene_b : (uint8_t *)&set.patch) + off; }
+static void live_update(void)                    /* patch, the sound as played, from the scenes and the morph (the autopilot adds its drift after) */
+{
+    uint32_t i;
+    if (!morph) { patch = set.patch; return; }
+    for (i = 0; i < sizeof(patch_t); i++) {
+        int32_t va = ((uint8_t *)&set.patch)[i], vb = ((uint8_t *)&scene_b)[i];
+        ((uint8_t *)&patch)[i] = (uint8_t)(i == offsetof(patch_t, dly_ping) || i == offsetof(patch_t, dly_sync) ? (morph >= 16384 ? vb : va) : va + (((vb - va) * morph) >> 15));
+    }
 }
 static int preset_edited(void)              /* the sound differs from its preset */
 {
     patch_t p;
     preset_build(set.preset, &p);
-    return memcmp(&p, &patch, sizeof p) != 0;
+    return memcmp(&p, &set.patch, sizeof p) != 0;
 }
 
 static uint32_t clk_last, last_midi_ms;       /* (the MIDI clock's and the last message's time: below) */
@@ -616,11 +651,19 @@ static void draw_header(void)
     char s[16];
     const char *title = pg->title;
     int32_t w, x0;
-    if (page == PG_HOME) {                      /* the preset's name, starred once the sound has been changed */
+    if (save_mode) {                            /* SAVE: the slot being picked */
         int32_t i = 0;
-        const char *n = PRESETS[set.preset % NPRESET].name;
+        const char *n = "SAVE > ";
+        while (*n) s[i++] = *n++;
+        n = preset_name(NPRESET + save_slot);
+        while (*n && i < 15) s[i++] = *n++;
+        s[i] = 0; title = s;
+    } else if (page == PG_HOME) {               /* the preset's name, starred once the sound has been changed; scene B's while there */
+        int32_t i = 0;
+        const char *n = preset_name(morph >= 16384 ? set.scene_b : set.preset);
+        if (morph >= 16384) { s[i++] = 'B'; s[i++] = ':'; s[i++] = ' '; }
         while (*n && i < 12) s[i++] = *n++;
-        if (preset_edited()) s[i++] = '*';
+        if (morph < 16384 && preset_edited()) s[i++] = '*';
         s[i] = 0; title = s;
     }
     w = text_w(&FONT_S, title); x0 = (240 - w) / 2;
@@ -628,7 +671,7 @@ static void draw_header(void)
     cv_begin(240, 24, C_PANEL);
     cv_rect(rl, 12, x0 - 6 - rl, 1, C_RULE);
     cv_rect(x0 + w + 6, 12, rr - (x0 + w + 6), 1, C_RULE);
-    cv_text(x0, 4, &FONT_S, title, page == PG_HOME ? KC[0] : C_SILK);
+    cv_text(x0, 4, &FONT_S, title, save_mode ? KC[3] : page == PG_HOME ? (morph >= 16384 ? KC[2] : KC[0]) : C_SILK);
     if (page == PG_MIDI) cv_text(238 - text_w(&FONT_S, "V" APP_VER), 4, &FONT_S, "V" APP_VER, C_LEG);
     if (PAGE_GROUP[page][1] > 1u) {
         char t[4];
@@ -1101,7 +1144,7 @@ static void auto_tick(void)                      /* every 100 ms */
     }
 }
 /* ---- the main loop */
-static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, status_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw;
+static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, status_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw, arp_was, arp_turned;
 static uint8_t held[27], sustain, sus_held[128 / 8];
 static int32_t oct(void) { return (int32_t)set.oct_plus2 - 2; }
 static void changed(void) { dirty = 1; t_change = fm1_ms; }
@@ -1120,11 +1163,13 @@ static void release_all(void)
 static void app_init(void)
 {
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
-    if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NPRESET) {
-        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0;
+    if (bank_load(bank, sizeof bank)) memset(bank, 0, sizeof bank);
+    if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NALL || set.scene_b >= NALL) {
+        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0; set.scene_b = 1;
         preset_build(0, &set.patch);
     }
     patch = set.patch;
+    preset_build(set.scene_b, &scene_b);
     lcd_fill(0, 0, 240, 240, C_PANEL);
 }
 static void app_loop(void)
@@ -1153,13 +1198,31 @@ static void app_loop(void)
         if (autopilot) { for (k = 0; k < NAUTO; k++) { auto_v[k] = 0; auto_aim[k] = 99; } } else patch = set.patch;   /* on: from where it is set, aims drawn at once; off: back to the sound as set */
         page_drawn = ~0u;
     }
+    if (b & (1u << BTN_SAVE)) {                                          /* SAVE: once to pick a slot (PRESETS), again to write it */
+        if (!save_mode) { save_mode = 1; save_slot = set.preset >= NPRESET ? (uint8_t)(set.preset - NPRESET) : 0u; }
+        else {
+            bank[save_slot].magic = USLOT_MAGIC; bank[save_slot].p = patch;   /* the sound as played: what you hear is what you keep */
+            bank_save(bank, sizeof bank);
+            set.preset = (uint8_t)(NPRESET + save_slot); set.patch = patch; morph = morph_to = 0; changed(); save_mode = 0;
+        }
+        page_drawn = ~0u;
+    } else if (save_mode && (b & ~(1u << BTN_SAVE))) { save_mode = 0; page_drawn = ~0u; }   /* any other button: not saving */
+    if (b & (1u << BTN_SEL)) { morph_to = morph_to ? 0 : 32767; morph = morph_to; live_update(); page_drawn = ~0u; }   /* SEL: cut to the other scene */
+    {   /* ARP: let go without turning PRESETS while held: morph to the other scene; turned: B was picked instead */
+        uint32_t arp = fm1_in.buttons >> BTN_ARP & 1u;
+        if (arp_was && !arp && !arp_turned) { morph_to = morph_to ? 0 : 32767; page_drawn = ~0u; }
+        if (!arp) arp_turned = 0;
+        arp_was = arp;
+    }
     if (b & (1u << BTN_PLAY)) { set.latch ^= 1u; if (!set.latch && !sustain) release_all(); changed(); status_drawn = ~0u; }   /* LATCH: a drone with no hands */
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
         sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k);
     }
-    if ((n = fm1_enc_take(ENC_PRESETS)) != 0) {                         /* PRESETS: the presets, on any page */
-        set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NPRESET * 4) % (int32_t)NPRESET);
-        preset_build(set.preset, &patch); set.patch = patch; changed(); page_drawn = ~0u;
+    if ((n = fm1_enc_take(ENC_PRESETS)) != 0) {                         /* PRESETS: the presets, on any page; a slot while saving; B while ARP is held */
+        if (save_mode) save_slot = (uint8_t)(((int32_t)save_slot + n + (int32_t)NUSER * 4) % (int32_t)NUSER);
+        else if (fm1_in.buttons >> BTN_ARP & 1u) { set.scene_b = (uint8_t)(((int32_t)set.scene_b + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.scene_b, &scene_b); arp_turned = 1; changed(); live_update(); }
+        else { set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); }
+        page_drawn = ~0u;
     }
     if ((n = fm1_enc_take(ENC_SELECT)) != 0) press = (uint8_t)clamp((int32_t)press + n * 4, 0, 127);   /* SELECT: the pressure, with no hands to press: the swell */
     if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page == PG_HOME) bend_knob = clamp(bend_knob + n * 64, -512, 512);   /* HOME: a bend, springing back */
@@ -1175,7 +1238,7 @@ static void app_loop(void)
             if (!d->name) continue;
             p = param_ptr(d);
             v = clamp((int32_t)*p + n * (d->max >= 100u ? 2 : 1), 0, d->max);
-            if (v != *p) { *p = (uint8_t)v; if (!d->global) ((uint8_t *)&set.patch)[d->off] = (uint8_t)v; changed(); draw_knob(k); draw_graphic(); if (page == PG_HOME) draw_header(); }
+            if (v != *p) { *p = (uint8_t)v; if (!d->global) *scene_ptr(d->off) = (uint8_t)v; changed(); draw_knob(k); draw_graphic(); if (page == PG_HOME) draw_header(); }
         }
     while (midi_get(&st, &d1, &d2)) {
         uint32_t m = st & 0xF0u, chn = (st & 15u) + 1u;
@@ -1187,14 +1250,14 @@ static void app_loop(void)
         if (m == 0x90u && d2) note_on(d1, d2);
         else if (m == 0x80u || m == 0x90u) note_off(d1);
         else if (m == 0xD0u) press = d1;
-        else if (m == 0xC0u) { set.preset = (uint8_t)(d1 % NPRESET); preset_build(set.preset, &patch); set.patch = patch; changed(); page_drawn = ~0u; }
+        else if (m == 0xC0u) { set.preset = (uint8_t)(d1 % NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); page_drawn = ~0u; }
         else if (m == 0xE0u) bend256 = (((int32_t)d2 << 7 | d1) - 8192) >> 4;
         else if (m == 0xB0u) {
             if (set.expr && d1 == set.expr) { press = d2; continue; }
             if (d1 == 64u) { sustain = d2 >= 64u; if (!sustain && !set.latch) release_all(); continue; }
             if (d1 == 120u || d1 == 123u) { sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k); continue; }
-            if (d1 >= 80u && d1 < 88u) { *((uint8_t *)&patch + MACRO[d1 - 80u].off) = d2; *((uint8_t *)&set.patch + MACRO[d1 - 80u].off) = d2; changed(); midi_redraw = 1; }
-            else if (d1 == 7u) { patch.volume = set.patch.volume = d2; changed(); }
+            if (d1 >= 80u && d1 < 88u) { *((uint8_t *)&patch + MACRO[d1 - 80u].off) = d2; *scene_ptr(MACRO[d1 - 80u].off) = d2; changed(); midi_redraw = 1; }
+            else if (d1 == 7u) { patch.volume = d2; *scene_ptr(offsetof(patch_t, volume)) = d2; changed(); }
         }
     }
     if (midi_redraw) { midi_redraw = 0; for (k = 0; k < 4u; k++) draw_knob(k); if (!PAGES[page].live) draw_graphic(); }
@@ -1214,7 +1277,7 @@ static void app_loop(void)
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_FREEZE); fm1_led_key(BTN_GLO, page == PG_MIDI);
-    fm1_led_key(BTN_PLAY, set.latch); fm1_led_key(BTN_REC, fm1_in.buttons >> BTN_REC & 1u); fm1_led_key(BTN_SEQ, autopilot);
+    fm1_led_key(BTN_PLAY, set.latch); fm1_led_key(BTN_REC, fm1_in.buttons >> BTN_REC & 1u); fm1_led_key(BTN_SEQ, autopilot); fm1_led_key(BTN_ARP, morph_to != 0); fm1_led_key(BTN_SEL, morph >= 16384); fm1_led_key(BTN_SAVE, save_mode);
     {
         static int32_t load_acc, wload_acc;
         int32_t l = (int32_t)(audio_cycles / (HALF_FRAMES * 10u * FM1_TICKS_PER_US / (FS / 1000u) + 1u));
@@ -1225,8 +1288,15 @@ static void app_loop(void)
     if (page != page_drawn) { page_drawn = page; draw_page(); status_drawn = ~0u; }
     freeze_now = (fm1_in.buttons >> BTN_REC & 1u) ? 127u : patch.freeze;   /* REC held: frozen for as long as it is */
     if (fm1_ms - strip_ms >= 100u) {                                      /* ten a second: the live graphics, the bend's spring, the autopilot */
+        uint32_t moving = morph != morph_to;
         strip_ms = fm1_ms; hist_tick(); bend_knob -= bend_knob / 4;
-        if (autopilot) { auto_tick(); for (k = 0; k < 4u; k++) draw_knob(k); draw_graphic(); }
+        if (moving) {                                                     /* the morph: four seconds end to end */
+            morph += morph_to > morph ? 819 : -819; morph = clamp(morph, 0, 32767);
+            live_update();
+            if (morph == morph_to || (morph >= 16384) != (morph - (morph_to > morph ? 819 : -819) >= 16384)) draw_header();
+        } else if (morph || autopilot) live_update();
+        if (autopilot) auto_tick();
+        if (autopilot || moving) { for (k = 0; k < 4u; k++) draw_knob(k); draw_graphic(); }
         else if (PAGES[page].live) draw_graphic();
     }
     k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14 | (uint32_t)autopilot << 15;

@@ -29,9 +29,10 @@ sound module for a dawless rig, built for playing rather than sequencing.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad, and so does the SELECT encoder, with no controller;
   ALGORITHM on HOME bends the pitch and springs back; PLAY latches a drone; REC held is FREEZE at full; SEQ is the
-  autopilot, nine controls wandering slowly round where they are set.
+  autopilot, nine controls wandering slowly round where they are set; ARP morphs to a second scene over four
+  seconds and back (held, PRESETS picks it), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in one of sixteen USER slots.
 
-Early days. To come: scenes with a morph, and user presets.
+Early days, but it is all in.
 
 ## Building
 
