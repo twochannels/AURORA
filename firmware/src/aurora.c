@@ -23,7 +23,7 @@
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
  *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands)
- *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SHAPE SWARM AIR;
+ *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SWARM AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
  *                shift, each part in the colour of its knob. The panel is kept 2 s after the last change.
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. tests/host.c runs this file
@@ -465,17 +465,17 @@ typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
 #define NONE {0, 0, 0, 0, 0}
-enum { PG_HOME = 0, PG_TONE, PG_SHAPE, PG_TOUCH, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_TONE, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
 typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
 static void draw_aurora(void), draw_tone(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
             draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
     {"AURORA",  draw_aurora, 1, {PA(tilt, "TILT", 127, K_NUM), PA(rv_mix, "SPACE", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(freeze, "FREEZE", 127, K_NUM)}},
     {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
-    {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(decay, "DECAY", 127, K_NUM), PA(sustain, "SUSTAIN", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM)}},
-    {"TOUCH",   draw_touch,  1, {PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM), PA(velo, "VELO", 127, K_NUM), PA(volume, "VOLUME", 127, K_NUM)}},
     {"SWARM",   draw_swarm,  0, {PA(sw_level, "LEVEL", 127, K_NUM), PA(sw_spread, "SPREAD", 127, K_NUM), PA(sw_cut, "CUTOFF", 127, K_NUM), PA(sw_res, "RESO", 127, K_NUM)}},
     {"AIR",     draw_air,    1, {PA(air, "AIR", 127, K_NUM), PA(air_tone, "TONE", 127, K_NUM), PA(air_tex, "TEXTUR", 127, K_NUM), PA(air_breath, "BREATH", 127, K_NUM)}},
+    {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(decay, "DECAY", 127, K_NUM), PA(sustain, "SUSTAIN", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM)}},
+    {"TOUCH",   draw_touch,  1, {PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM), PA(velo, "VELO", 127, K_NUM), PA(volume, "VOLUME", 127, K_NUM)}},
     {"MOVE",    draw_move,   1, {PA(move, "MOVE", 127, K_NUM), PA(rate, "RATE", 127, K_NUM), PA(drift, "DRIFT", 127, K_NUM), PA(width, "WIDTH", 127, K_NUM)}},
     {"SOURCES", draw_matrix, 1, {PA(src_wander, "WANDER", 127, K_NUM), PA(src_walk, "WALK", 127, K_NUM), PA(src_chaos, "CHAOS", 127, K_NUM), PA(src_tide, "TIDE", 127, K_NUM)}},
     {"TARGETS", draw_matrix, 1, {PA(to_tilt, "TILT", 127, K_NUM), PA(to_colour, "COLOUR", 127, K_NUM), PA(to_pitch, "PITCH", 127, K_NUM), PA(to_space, "SPACE", 127, K_NUM)}},
@@ -484,7 +484,7 @@ static const page_t PAGES[NPAGE] = {
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
     {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), NONE, NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 3}, {PG_TONE, 3}, {PG_TONE, 3}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -1106,6 +1106,7 @@ static void app_loop(void)
     if (b & (1u << BTN_OCT_UP) && set.oct_plus2 < 4u) { set.oct_plus2++; changed(); }
     if (b & (1u << BTN_HOME)) page = PG_HOME;
     if (b & (1u << BTN_EDIT)) page = page >= PG_TONE && page < PG_AIR ? page + 1u : PG_TONE;
+    if (b & (1u << BTN_ENV)) page = page == PG_SHAPE ? PG_TOUCH : PG_SHAPE;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_FREEZE ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
@@ -1166,7 +1167,7 @@ static void app_loop(void)
         if (sounding >> k & 1u) { nv++; if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
-    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR);
+    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_FREEZE); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch);
     {

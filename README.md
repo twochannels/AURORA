@@ -20,7 +20,7 @@ sound module for a dawless rig, built for playing rather than sequencing.
   they pick, SHIFT their pitch, an octave either way), on into the phaser and the plate: the texture stays after the
   hands have left. Half way it smears away over a minute, at the top it holds for ever.
 - **The screen**: every page is a graphic the four knobs shift, each part drawn in the colour of the knob that
-  moves it: TONE is the spectrum, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
+  moves it (EDIT, ENV, LFO and FX step through their groups): TONE is the spectrum, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
   sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
   line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with TILT, SPACE,
   AIR and FREEZE under the knobs for playing.
