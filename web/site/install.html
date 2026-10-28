@@ -12,14 +12,15 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
 <link rel="stylesheet" href="site.css">
 <style>
-  .installer { text-align: center; margin: 1.4rem 0 .6rem; }
-  .go { font: 600 1.2rem "Barlow Semi Condensed", sans-serif; letter-spacing: .14em; padding: .75em 2em; background: var(--k1); color: #06120d; border: 0; border-radius: 999px; cursor: pointer; }
+  .installer { text-align: center; margin: 2.4rem 0 1rem; padding: 2.2rem 1.4rem 1.4rem; background: var(--card); border: 1px solid var(--rule); border-radius: 16px; }
+  .installer .lead { margin: 0 0 1.2rem; color: var(--ink); }
+  .go { font: 600 1.35rem "Barlow Semi Condensed", sans-serif; letter-spacing: .16em; padding: .8em 2.4em; background: var(--k1); color: #06120d; border: 0; border-radius: 999px; cursor: pointer; }
   .go[disabled] { opacity: .45; cursor: default; }
   .pkgline { margin: .4rem 0; } .pkgline b { font-family: "Barlow Semi Condensed", sans-serif; letter-spacing: .08em; }
   .muted { color: var(--muted); }
   progress { width: min(100%, 480px); height: 8px; margin: .8rem auto .4rem; display: block; accent-color: var(--k1); }
   progress[hidden] { display: none; }
-  #log { font: .9rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; text-align: left; background: var(--panel); color: var(--ink); padding: .8rem 1rem; border-radius: 8px; border: 1px solid var(--rule); min-height: 3rem; max-width: 640px; margin: .6rem auto; }
+  #log { font: .9rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; text-align: left; background: var(--ground); color: var(--ink); padding: .8rem 1rem; border-radius: 8px; border: 1px solid var(--rule); min-height: 3rem; max-width: 640px; margin: .6rem auto; }
   #log .err { color: #ff9a7a; }
   #log .ok { color: var(--k1); }
   .other { font-size: 14px; color: var(--muted); }
@@ -35,6 +36,7 @@
   </header>
 
   <div class="installer">
+    <p class="lead">Plug the FM-1 in over USB, switch it on, and press.</p>
     <p><button class="go" id="install" disabled>INSTALL ON THE FM-1</button></p>
     <p class="pkgline"><b id="pkgname">AURORA</b> <span id="pkginfo" class="muted">loading the package…</span></p>
     <progress id="bar" max="100" value="0" hidden></progress>
