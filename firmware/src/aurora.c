@@ -1136,11 +1136,15 @@ static void draw_midi(void)
     }
 }
 
+static uint32_t page_filled = ~0u;
 static void draw_page(void)
 {
     uint32_t k;
-    lcd_fill(0, 0, 240, 240, page == PG_HOME ? C_GROUND : C_PANEL);
-    if (page == PG_HOME) lcd_fill(0, 0, 240, GY + GH, C_PANEL);   /* (the ground runs from the sky's bottom row down) */
+    if (page != page_filled) {                     /* the background only when the page changes: a preset change redraws the strips over it, no flash */
+        page_filled = page;
+        lcd_fill(0, 0, 240, 240, page == PG_HOME ? C_GROUND : C_PANEL);
+        if (page == PG_HOME) lcd_fill(0, 0, 240, GY + GH, C_PANEL);   /* (the ground runs from the sky's bottom row down) */
+    }
     for (k = 0; k < 4u; k++) { const pdesc_t *d = &PAGES[page].p[k]; knob_last[k] = d->name ? *param_ptr(d) : 0u; knob_flare[k] = 0; }   /* (a page change is no flare) */
     draw_header();
     draw_graphic();
@@ -1215,7 +1219,7 @@ static void app_loop(void)
     uint32_t base = (uint32_t)(KEY0 + 12 * oct());
     uint8_t st, d1, d2;
     int32_t n;
-    if (platform_screen_take()) page_drawn = ~0u;
+    if (platform_screen_take()) page_drawn = page_filled = ~0u;   /* (the screen was lost: everything again) */
     keys = fm1_in.notes; down = keys & ~prev_keys; up = prev_keys & ~keys; prev_keys = keys;
     for (k = 0; k < 27u; k++) {
         if (down >> k & 1u) { held[k] = (uint8_t)(base + k); note_on(held[k], 100); midi_send(0x90, held[k], 100); }
