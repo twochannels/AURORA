@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="c1" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#78e6be"/><stop offset=".35" stop-color="#3cc896" stop-opacity=".85"/><stop offset=".75" stop-color="#6a5ae0" stop-opacity=".35"/><stop offset="1" stop-color="#7a58e6" stop-opacity="0"/></linearGradient>
+    <linearGradient id="c2" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#5ad2dc" stop-opacity=".9"/><stop offset=".5" stop-color="#5aaaff" stop-opacity=".45"/><stop offset="1" stop-color="#dc78e6" stop-opacity="0"/></linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0e1018"/>
+  <g fill="#d6dee8"><circle cx="12" cy="11" r="1"/><circle cx="50" cy="8" r="1.2"/><circle cx="31" cy="15" r=".8"/><circle cx="57" cy="20" r=".8"/><circle cx="7" cy="24" r=".7"/><circle cx="40" cy="6" r=".6"/></g>
+  <path fill="url(#c2)" d="M0 40 C8 34 14 24 24 26 S38 36 46 28 S58 20 64 22 V34 C56 30 50 40 44 40 S32 34 24 36 S10 48 0 46 Z"/>
+  <path fill="url(#c1)" d="M0 54 C10 50 16 36 26 40 S40 54 50 44 S60 34 64 36 V52 C58 48 52 56 46 56 S36 50 28 52 S12 60 0 60 Z"/>
+  <path fill="#0e1018" d="M0 64 V52 C12 54 18 50 28 50 S44 56 54 52 S60 50 64 52 V64 Z" opacity=".7"/>
+</svg>
