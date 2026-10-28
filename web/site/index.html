@@ -34,8 +34,8 @@
   <h2 id="sky-h">The sky is the sound</h2>
   <div class="intro">
     <div class="player" id="player">
-      <video class="demo" preload="metadata" poster="demo/poster.jpg" width="720" height="720" playsinline><source src="demo/aurora-demo.mp4" type="video/mp4"></video>
-      <button class="big-play" id="bigplay" type="button" aria-label="Play the demo"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46"/><path d="M40 30 L72 50 L40 70 Z"/></svg></button>
+      <video class="demo" autoplay muted loop playsinline preload="auto" poster="demo/poster.jpg" width="720" height="720"><source src="demo/aurora-demo.mp4" type="video/mp4"></video>
+      <button class="big-play" id="bigplay" type="button" aria-label="Turn the sound on"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46"/><path d="M30 40 H42 L56 28 V72 L42 60 H30 Z"/><path class="wave" d="M64 38 Q74 50 64 62" /><path class="wave" d="M70 30 Q86 50 70 70" /><path class="off" d="M62 36 L82 64 M82 36 L62 64" /></svg></button>
     </div>
     <p class="lead">An ambient instrument for the M-VAVE FM-1: a spectral pad that drifts, a swarm, wind, a plate, a tape delay and a freeze. A sound module for a dawless rig: your sequencer sequences, AURORA sounds.</p>
   </div>
@@ -120,9 +120,8 @@
 (() => {
   const p = document.getElementById("player"), v = p && p.querySelector("video"), b = document.getElementById("bigplay");
   if (!v || !b) return;
-  b.addEventListener("click", () => { v.controls = true; v.play(); });
-  v.addEventListener("play", () => p.classList.add("playing"));
-  v.addEventListener("ended", () => { p.classList.remove("playing"); v.controls = false; });
+  b.addEventListener("click", () => { v.muted = false; v.loop = false; v.controls = true; v.currentTime = 0; v.play(); p.classList.add("sound"); });   /* it plays muted on its own; this is the sound, from the top */
+  v.addEventListener("ended", () => { p.classList.remove("sound"); v.controls = false; v.muted = true; v.loop = true; v.play(); });
 })();
 /* The sky: the firmware's curtains, in the page. Three curtains, each a sum of two waves, bent by slow random
  * walks standing in for the instrument's sources, lit from a sharp lower edge up into a long fade. */
