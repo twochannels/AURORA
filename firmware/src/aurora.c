@@ -721,7 +721,7 @@ static void draw_aurora(void)
     uint32_t c, x, y, kx, kx2, inc, lv = sound_level();
     int32_t th[3], step[3], off[3], ints, frz = (int32_t)freeze_now * 2, m = patch.move, v;
     au_glow += ((int32_t)lv - au_glow) >> 2;
-    ints = 80 + ((au_glow * 176) >> 15);                                                   /* the light: 80 at rest, full while sounding */
+    ints = 150 + ((au_glow * 106) >> 15);                                                  /* the light: 150 at rest, full while sounding (the FM-1's panel is dim: the mids must sit well above its black) */
     ints = ints - ((ints * patch.rv_mix) >> 9);                                            /* the haze dims it a little */
     inc = (10000000u + (uint32_t)patch.rate * 1600000u) / 127u * (uint32_t)(127 - freeze_now);   /* the waves' drift: 40 s a cycle to 2 s, stopped by the ice */
     au_ph[0] += inc; au_ph[1] -= inc + (inc >> 1); au_ph[2] += inc >> 1;
@@ -732,9 +732,9 @@ static void draw_aurora(void)
         uint16_t lo, hi;
         uint32_t i;
         step[c] = (32 << 8) / th[c];
-        if (c == 0) { lo = blend(RGB(40, 200, 120), RGB(180, 255, 220), (uint32_t)(127 - patch.tilt) * 2u); hi = blend(RGB(90, 80, 230), RGB(230, 70, 120), (uint32_t)patch.spread * 2u); }
-        else if (c == 1) { lo = RGB(80, 200, 220); hi = RGB(150, 80, 230); }
-        else { lo = RGB(120, 140, 255); hi = RGB(200, 90, 200); }
+        if (c == 0) { lo = blend(RGB(0, 255, 100), RGB(160, 255, 200), (uint32_t)(127 - patch.tilt) * 2u); hi = blend(RGB(110, 40, 255), RGB(255, 30, 110), (uint32_t)patch.spread * 2u); }   /* saturated: the panel washes colour out */
+        else if (c == 1) { lo = RGB(0, 230, 255); hi = RGB(170, 50, 255); }
+        else { lo = RGB(60, 110, 255); hi = RGB(255, 60, 200); }
         for (i = 0; i < 8u; i++) col[c][i] = blend(blend(lo, hi, i * 36u), RGB(190, 220, 255), (uint32_t)frz);
     }
     for (x = 0; x < 240u; x++) {
@@ -765,7 +765,9 @@ static void draw_aurora(void)
                 if (d < 0 || d >= th[c]) continue;
                 i = (d * step[c]) >> 8;
                 t = (((int32_t)AU_PROF[i] * au_ray[x]) >> 8) * ints >> 8;
-                p = blend(p, col[c][i >> 2], (uint32_t)(t > 255 ? 255 : t));
+                if (t > 255) t = 255;
+                t = 255 - (((255 - t) * (255 - t)) >> 8);                                  /* lifted: the fade's mids brighter, the panel's black left black */
+                p = blend(p, col[c][i >> 2], (uint32_t)t);
                 hit = 1;
             }
             if (hit) row[x] = swap16(p);
@@ -777,7 +779,7 @@ static void draw_aurora(void)
         uint32_t s = 0x1234567u, i, n = 24u + (uint32_t)patch.air * 40u / 127u;
         for (i = 0; i < n; i++) {
             uint32_t r = i < 24u ? noise32(&s) : noise32(&ui_rng);
-            cv_pset((int32_t)((r >> 8) % 240u), (int32_t)((r >> 16) % GH), dim(i < 24u ? C_SILK : RGB(230, 240, 255), i < 24u ? 60u + (r & 63u) : 100u + (r & 127u)));
+            cv_pset((int32_t)((r >> 8) % 240u), (int32_t)((r >> 16) % GH), dim(i < 24u ? C_SILK : RGB(230, 240, 255), i < 24u ? 110u + (r & 63u) : 140u + (r & 127u)));
         }
     }
 }
