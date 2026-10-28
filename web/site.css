@@ -84,4 +84,4 @@ footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px
 .panel span { color: var(--muted); font-size: 15px; }
 
 /* the demo */
-.demo { display: block; width: min(100%, 480px); height: auto; margin: 1rem 0 1.4rem; border-radius: 12px; border: 1px solid var(--rule); background: var(--panel); }
+.demo { display: block; width: min(100%, 480px); height: auto; margin: 1.2rem 0 .4rem; border-radius: 12px; border: 1px solid var(--rule); background: var(--panel); }
