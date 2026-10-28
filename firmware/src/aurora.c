@@ -680,19 +680,30 @@ static void draw_header(void)
     }
     cv_blit(0, 0);
 }
-static void draw_knob(uint32_t k)       /* a knob's cell: its bar in its colour, the value, the name */
+static void cv_arc(int32_t cx, int32_t cy, int32_t r, uint32_t from, uint32_t to, uint16_t c)   /* an arc, phases in turns (uint32), clockwise, 3 px thick */
+{
+    int32_t i, n = 2 + (int32_t)(((to - from) >> 24) * r >> 5);   /* a step every couple of pixels */
+    for (i = 0; i <= n; i++) {
+        uint32_t ph = from + ((to - from) >> 8) / (uint32_t)n * (uint32_t)i << 8;
+        cv_dot(cx + ((sine_i(ph + 0x40000000u) * r) >> 15), cy + ((sine_i(ph) * r) >> 15), 1, c);
+    }
+}
+#define ARC_FROM 0x60000000u                    /* the dial's travel: from bottom-left, three quarters of a turn clockwise, to bottom-right */
+#define ARC_SWEEP 0xC0000000u
+static void draw_knob(uint32_t k)       /* a knob's cell: a dial in its colour, the value, the name */
 {
     const pdesc_t *d = &PAGES[page].p[k];
     char s[8];
-    cv_begin(60, 50, C_PANEL);
+    cv_begin(60, 66, C_PANEL);
     if (d->name) {
-        uint32_t v = *param_ptr(d);
+        uint32_t v = *param_ptr(d), mx = d->max ? d->max : 1u, sw = ARC_SWEEP / mx * v;
         int32_t w;
-        cv_rect(6, 0, 48, 3, C_SLOT);
-        cv_rect(6, 0, (int32_t)(v * 48u / (d->max ? d->max : 1u)), 3, KC[k]);
+        cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + ARC_SWEEP, C_RULE);
+        if (v) cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + sw, KC[k]);
+        cv_dot(30 + ((sine_i(ARC_FROM + sw + 0x40000000u) * 15) >> 15), 19 + ((sine_i(ARC_FROM + sw) * 15) >> 15), 2, C_SILK);   /* the pointer */
         fmt_value(d, v, s);
-        w = text_w(&FONT_S, s); cv_text(30 - (w >> 1), 9, &FONT_S, s, C_SILK);
-        w = text_w(&FONT_S, d->name); cv_text(30 - (w >> 1), 30, &FONT_S, d->name, C_LEG);
+        w = text_w(&FONT_S, s); cv_text(30 - (w >> 1), 11, &FONT_S, s, C_SILK);
+        w = text_w(&FONT_S, d->name); cv_text(30 - (w >> 1), 48, &FONT_S, d->name, C_LEG);
     }
     cv_blit(60u * k, KY);
 }
