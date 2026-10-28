@@ -1,4 +1,4 @@
-# AURORA 0.4.0
+# AURORA 0.4.1
 
 The first release. An ambient instrument for the M-VAVE FM-1: a sound module for a dawless rig, built for playing
 rather than sequencing.

@@ -680,7 +680,7 @@ static void cv_arc(int32_t cx, int32_t cy, int32_t r, uint32_t from, uint32_t to
 {
     int32_t i, n = 2 + (int32_t)(((to - from) >> 24) * r >> 5);   /* a step every couple of pixels */
     for (i = 0; i <= n; i++) {
-        uint32_t ph = from + ((to - from) >> 8) / (uint32_t)n * (uint32_t)i << 8;
+        uint32_t ph = from + ((((to - from) >> 8) / (uint32_t)n) * (uint32_t)i << 8);   /* (the parentheses matter: + binds tighter than <<) */
         cv_dot(cx + ((sine_i(ph + 0x40000000u) * r) >> 15), cy + ((sine_i(ph) * r) >> 15), 1, c);
     }
 }
