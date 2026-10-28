@@ -385,8 +385,8 @@ $("go").addEventListener("click", async () => {
   try {
     const ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
     const [wasm] = await Promise.all([
-      fetch("aurora.wasm").then((r) => { if (!r.ok) throw new Error(`aurora.wasm: ${r.status}`); return r.arrayBuffer(); }),
-      ac.audioWorklet.addModule("worklet.js")]);
+      fetch("aurora.wasm?v=@VERSION@").then((r) => { if (!r.ok) throw new Error(`aurora.wasm: ${r.status}`); return r.arrayBuffer(); }),   // (the version in the URL: a new build is never the browser's cached one)
+      ac.audioWorklet.addModule("worklet.js?v=@VERSION@")]);
     node = new AudioWorkletNode(ac, "aurora", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     node.connect(ac.destination);
     node.port.onmessage = (e) => {
