@@ -22,7 +22,23 @@ static uint32_t dly_wow, dly_flt;
 static uint32_t dly_hot;                             /* writes the line had to clamp: a meter (tests/host.c declares it) */
 #endif                    /* the tape's wow (0.7 Hz) and flutter (6 Hz) phases */
 static int32_t dly_m16, dly_m16_d;                   /* the tape's wander, in 1/16 frames, and its step a frame across the block */
+static uint32_t dly_tl, dly_tr, dly_ol, dly_or, dly_xf;   /* the taps' times now and before, and the crossfade left between them (frames): a time change is a 46 ms fade, never a jump */
+#define DLY_XF 2048u
 static inline uint32_t dly_back(uint32_t back) { uint32_t p = dly_w + DLY_LEN - back; return p >= DLY_LEN ? p - DLY_LEN : p; }
+static inline int32_t dly_read(uint32_t t, int32_t m16, int32_t tape)   /* the tap at time t: between frames at the wandering position with TAPE, else the frame */
+{
+    if (tape) {
+        int32_t back = clamp((int32_t)t + (m16 >> 4) - 32, 2, (int32_t)DLY_LEN - 2);   /* (the wander kept inside the line at the extremes) */
+        uint32_t a = dly_back((uint32_t)back), b = dly_back((uint32_t)back + 1u);
+        return dly_line[a] + (((dly_line[b] - dly_line[a]) * (m16 & 15)) >> 4);   /* (the fraction and the whole frame from the same position) */
+    }
+    return dly_line[dly_back(t)];
+}
+static void dly_retime(uint32_t tl, uint32_t tr)   /* new tap times: the old ones fade out over DLY_XF frames (a fade still running is finished first) */
+{
+    if (tl == dly_tl && tr == dly_tr) return;
+    dly_ol = dly_tl; dly_or = dly_tr; dly_tl = tl; dly_tr = tr; dly_xf = DLY_XF;
+}
 #define NGRAIN 8u
 static struct { uint32_t pos, wph, winc; int32_t pl, pr; } grain[NGRAIN];   /* the read position (16.16 frames), the window's phase and step, the pan */
 static uint32_t frz_rng = 0x3C6EF35Fu, frz_len, frz_spray, frz_rate = 65536u;   /* this block's grain length (frames), reach (frames), rate (16.16) */
@@ -73,6 +89,7 @@ static inline int32_t grains_step(int32_t *gl, int32_t *gr)   /* one frame of th
 static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place */
 {
     uint32_t i, time = patch.dly_sync ? sync_dly : DLY_TIME[patch.dly_time], half = time >> 1;
+    dly_retime(time, patch.dly_ping ? half : time);
     int32_t fb = patch.dly_fb * 250, mix = patch.dly_mix * 258, damp = 32767 - patch.dly_damp * 230;
     int32_t tape = patch.dly_tape, drive = 32767 + tape * 258, undrive = (32767 << 15) / drive, m16;   /* TAPE's drive, and exactly its inverse after the clip: the saturation can only compress */
     if (tape) {                                     /* TAPE: the repeats wander (wow and flutter), darken and saturate */
@@ -91,24 +108,21 @@ static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place
     }
     for (i = 0; i < n; i++) {
         int32_t in = (st[2u * i] + st[2u * i + 1u]) >> 1;
-        int32_t tap, tap2, back;
+        int32_t tap, tap2;
         if (frz_now) {                              /* the cloud, at FREEZE x -2.7 dB a grain, before the line is written */
             int32_t gl, gr, lvl = mulq15(frz_now, 24000);
             grains_step(&gl, &gr);
             st[2u * i] += mulq15(gl, lvl); st[2u * i + 1u] += mulq15(gr, lvl);
         }
-        if (tape) {                                 /* read between frames at the wandering position */
-            uint32_t fr, a, b;
-            dly_m16 += dly_m16_d; m16 = dly_m16 + 32 * 16;   /* kept positive */
-            fr = (uint32_t)m16 & 15u;                    /* (the fraction and the whole frame from the same position: taken a step apart, every crossing jumped a frame) */
-            back = clamp((int32_t)time + (m16 >> 4) - 32, 2, (int32_t)DLY_LEN - 2);   /* (the wander kept inside the line at the extremes) */
-            a = dly_back((uint32_t)back); b = dly_back((uint32_t)back + 1u);
-            tap = dly_line[a] + (((dly_line[b] - dly_line[a]) * (int32_t)fr) >> 4);
-            if (patch.dly_ping) { back = clamp((int32_t)half + (m16 >> 4) - 32, 2, (int32_t)DLY_LEN - 2); a = dly_back((uint32_t)back); b = dly_back((uint32_t)back + 1u); tap2 = dly_line[a] + (((dly_line[b] - dly_line[a]) * (int32_t)fr) >> 4); }
-            else tap2 = tap;
-        } else {
-            tap = dly_line[dly_back(time)];
-            tap2 = patch.dly_ping ? dly_line[dly_back(half)] : tap;
+        if (tape) { dly_m16 += dly_m16_d; m16 = dly_m16 + 32 * 16; } else m16 = 32 * 16;   /* the wander, kept positive */
+        tap = dly_read(dly_tl, m16, tape);
+        tap2 = dly_tr == dly_tl ? tap : dly_read(dly_tr, m16, tape);
+        if (dly_xf) {                               /* a time just changed: the old taps fading out, the new in */
+            int32_t w = (int32_t)dly_xf * (32768 / (int32_t)DLY_XF), o = dly_read(dly_ol, m16, tape);
+            tap += ((o - tap) * w) >> 15;
+            o = dly_or == dly_ol ? o : dly_read(dly_or, m16, tape);
+            tap2 += ((o - tap2) * w) >> 15;
+            dly_xf--;
         }
         { int32_t e = (tap - dly_lp) * damp + dly_err; dly_lp += e / 32768; dly_err = e % 32768; }   /* the loop's damping, the remainder carried: every difference moves it */
         { int32_t f = mulq15r(dly_lp, fb);
