@@ -47,8 +47,9 @@ if (typeof registerProcessor === "function") {
           this.sentBank = ex.web_bank_saves();
           {                                       // the patch's field names, for "Copy sound"
             const mem = new Uint8Array(ex.memory.buffer), p = ex.web_patch_fields();
-            let e = p; while (mem[e]) e++;
-            this.fields = new TextDecoder().decode(mem.subarray(p, e)).split(",");
+            let s = "";
+            for (let e = p; mem[e]; e++) s += String.fromCharCode(mem[e]);   // (no TextDecoder in a worklet)
+            this.fields = s.split(",");
           }
           this.port.postMessage({ type: "ready", rate: ex.web_sample_rate(), fields: this.fields });
         } catch (err) {
