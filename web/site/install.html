@@ -12,61 +12,55 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
 <link rel="stylesheet" href="site.css">
 <style>
-  .pkg { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: center; }
-  .pkg b { font-family: "Barlow Semi Condensed", sans-serif; font-size: 1.2rem; }
-  .go { font: 600 1.15rem "Barlow Semi Condensed", sans-serif; letter-spacing: .04em; padding: .7em 1.6em; background: var(--accent); color: #1b1205; border: 0; border-radius: 999px; cursor: pointer; }
-  .go[disabled] { opacity: .5; cursor: default; }
-  progress { width: 100%; height: 8px; margin: 1rem 0 .5rem; accent-color: var(--accent); }
-  #log { font: .9rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; background: var(--panel); color: #e8e4dc; padding: .8rem 1rem; border-radius: 8px; min-height: 3.5rem; }
+  .installer { text-align: center; margin: 1.4rem 0 .6rem; }
+  .go { font: 600 1.2rem "Barlow Semi Condensed", sans-serif; letter-spacing: .14em; padding: .75em 2em; background: var(--k1); color: #06120d; border: 0; border-radius: 999px; cursor: pointer; }
+  .go[disabled] { opacity: .45; cursor: default; }
+  .pkgline { margin: .4rem 0; } .pkgline b { font-family: "Barlow Semi Condensed", sans-serif; letter-spacing: .08em; }
+  .muted { color: var(--muted); }
+  progress { width: min(100%, 480px); height: 8px; margin: .8rem auto .4rem; display: block; accent-color: var(--k1); }
+  progress[hidden] { display: none; }
+  #log { font: .9rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; text-align: left; background: var(--panel); color: var(--ink); padding: .8rem 1rem; border-radius: 8px; border: 1px solid var(--rule); min-height: 3rem; max-width: 640px; margin: .6rem auto; }
   #log .err { color: #ff9a7a; }
-  #log .ok { color: #9ee493; }
-  .steps li { margin: .3rem 0; }
+  #log .ok { color: var(--k1); }
+  .other { font-size: 14px; color: var(--muted); }
+  .steps li, ul li { margin: .3rem 0; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1><a href="./">AURORA</a></h1>
-    <p>install it on your FM-1, from this page</p>
+    <p>on your FM-1, from this page</p>
     <nav><a href="./">About</a><a href="emu/">Play</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
   </header>
 
-  <p class="note">Installing any custom firmware on the FM-1 is at your own risk. If anything goes wrong, the rescue is always there: hold <b>OCT−</b> while switching the FM-1 on and it starts in a USB update mode from which any installer, this one included, works again.</p>
-
-  <h2 id="need">What you need</h2>
-  <ul class="steps">
-    <li><b>Chrome or Edge</b> on a computer. The page talks to the FM-1 over Web MIDI, which Safari and Firefox do not offer.</li>
-    <li>A <b>USB data cable</b> (some charging cables carry no data) and the FM-1 switched on.</li>
-    <li><b>No other program using the FM-1's MIDI port</b>: close your DAW, and close the <a href="emu/">emulator</a> tab if you had the FM-1 selected there.</li>
-    <li>The browser will ask to allow MIDI with system exclusive messages. Say yes; that is how the update travels.</li>
-  </ul>
-
-  <h2 id="package">The package</h2>
-  <div class="card">
-    <div class="pkg">
-      <div><b id="pkgname">AURORA for the FM-1</b><br><span id="pkginfo" class="muted">loading the package…</span></div>
-      <label>…or another <code>.fwsc</code>: <input id="file" type="file" accept=".fwsc"></label>
-    </div>
+  <div class="installer">
+    <p><button class="go" id="install" disabled>INSTALL ON THE FM-1</button></p>
+    <p class="pkgline"><b id="pkgname">AURORA</b> <span id="pkginfo" class="muted">loading the package…</span></p>
+    <progress id="bar" max="100" value="0" hidden></progress>
+    <div id="log">Waiting.</div>
+    <p class="other"><label>Another package: <input id="file" type="file" accept=".fwsc"></label></p>
   </div>
 
-  <h2 id="go">Install</h2>
-  <p>Plug the FM-1 in, switch it on, then press the button and leave the cable alone until the page says it is done. The FM-1 checks the package, restarts into its update mode, writes the firmware (about a minute), and restarts again running AURORA. Your user presets stay where they were, unless the release notes say the sound format changed, in which case the bank starts empty once.</p>
-  <p><button class="go" id="install" disabled>Install on the FM-1</button></p>
-  <progress id="bar" max="100" value="0" hidden></progress>
-  <div id="log">Waiting.</div>
+  <h2 id="need">You need</h2>
+  <ul class="steps">
+    <li><b>Chrome or Edge</b>, for Web MIDI.</li>
+    <li>A <b>USB data cable</b>, the FM-1 on, and nothing else using its MIDI port: close your DAW and the <a href="emu/">emulator</a>.</li>
+    <li>To say <b>yes</b> when the browser asks to allow MIDI with system exclusive.</li>
+  </ul>
+  <p>Press the button and leave the cable alone. The FM-1 restarts into its update mode, writes the firmware in about a minute, and restarts running AURORA.</p>
 
-  <h2 id="trouble">If it stops</h2>
+  <h2 class="a" id="trouble">If it stops</h2>
   <ul>
-    <li><b>"FM-1 not found"</b>: check the cable, that nothing else holds the port, and that you allowed MIDI when asked. Reload the page and try again.</li>
-    <li><b>It stopped while writing</b>: the FM-1 stays in update mode until the write is complete. Replug the cable and press Install again; the page notices the update mode and finishes the write.</li>
-    <li><b>It does not come back</b>: switch it off and on. If it then shows nothing, hold OCT− while switching on and install again.</li>
+    <li><b>FM-1 not found</b>: cable, port, permission. Reload and try again.</li>
+    <li><b>Stopped while writing</b>: replug and press Install again; it finishes the write.</li>
+    <li><b>Does not come back</b>: switch it off and on. Still nothing: hold <b>OCT&minus;</b> while switching on, then install again. That rescue is always there.</li>
   </ul>
 
-  <h2 id="back">Going back, or on to another firmware</h2>
-  <p>Install the next firmware the way you installed this one: from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>, from that firmware's own installer, or with M-VAVE's updater. AURORA accepts a package that brings Felucca's update loader, which nearly every custom firmware does, and one that brings M-VAVE's own, which the official V15 and firmwares built on it do. The hub's "Back to official V15" works from AURORA 0.3.2 on; before that, AURORA refused the official package on any unit whose first 16 KB of flash were older than V15's, and the screen only flickered. If AURORA refuses a package now, the screen says why for three seconds. </p>
-  <p>The command-line route still works too: <code>python3 tools/fm1_install.py aurora.fwsc</code> from the source tree, with Python 3, <code>mido</code> and <code>python-rtmidi</code>.</p>
+  <h2 class="v" id="back">Going back</h2>
+  <p>Any other firmware installs over AURORA the same way, from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> or its own installer. From the command line: <code>python3 tools/fm1_install.py aurora.fwsc</code>.</p>
 
-  <footer><small>The installer is Felucca's <code>fm1ota.js</code> by Leo Kuroshita (Hügelton Instruments), GPL-3.0. AURORA is GPL-3.0; M-VAVE and FM-1 are their owners' marks, CS-80 is Yamaha's.</small></footer>
+  <footer><small>The installer is Felucca's <code>fm1ota.js</code> by Leo Kuroshita (Hügelton Instruments), GPL-3.0. AURORA is GPL-3.0; M-VAVE and FM-1 are their owners' marks.</small></footer>
 </main>
 <script type="module">
 import { Updater } from "./fm1ota.js";
