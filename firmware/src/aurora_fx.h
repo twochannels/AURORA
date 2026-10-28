@@ -123,37 +123,6 @@ static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place
     }
 }
 
-/* ---- the reverb */
-/* ---- the phaser: six first-order allpasses a side swept by one LFO (the right side a quarter turn behind), feedback
- * round the chain, dry and wet summed. The sweep's coefficient comes from PH_A (100 Hz .. 5 kHz) once a block and
- * slides across it. After the delay, before the reverb. */
-static int32_t ph_x[2][6], ph_y[2][6], ph_last[2], ph_a[2], ph_a_d[2];
-static uint32_t ph_lfo;
-static void fx_phaser(int32_t *st, uint32_t n)
-{
-    uint32_t i, k, c;
-    int32_t mix = patch.ph_mix * 258, fb = patch.ph_fb * 180, depth = patch.ph_depth;
-    if (!mix) return;
-    ph_lfo += LFO_INC[(patch.ph_rate * 3u) >> 2] * (n / CTL);   /* 0.1 .. ~9 Hz, a block at a time */
-    for (c = 0; c < 2u; c++) {
-        int32_t lfo = sine_i(ph_lfo + (c ? 0x40000000u : 0u)), idx = 64 + ((lfo * depth) >> 16), a1;
-        a1 = PH_A[clamp(idx, 0, 127)];
-        ph_a_d[c] = (a1 - ph_a[c]) / (int32_t)n;
-    }
-    for (i = 0; i < n; i++) {
-        for (c = 0; c < 2u; c++) {
-            int32_t in = st[2u * i + c], x = clamp(in + mulq15(ph_last[c], fb), -60000, 60000), a = ph_a[c];
-            for (k = 0; k < 6u; k++) {               /* y = -a x + x1 + a y1; the states held under 60000: a Q15 product of more wraps */
-                int32_t y = clamp(-mulq15(x, a) + ph_x[c][k] + mulq15(ph_y[c][k], a), -60000, 60000);
-                ph_x[c][k] = x; ph_y[c][k] = y; x = y;
-            }
-            ph_last[c] = x;
-            ph_a[c] += ph_a_d[c];
-            st[2u * i + c] = in + mulq15(x, mix);
-        }
-    }
-}
-
 /* ---- the reverb: a plate after Dattorro (1997), in fixed point. The input is diffused by four allpasses and fed to
  * two cross-coupled tanks, each a slowly modulated allpass, a delay, the damping low-pass, an allpass and a delay,
  * with the decay applied twice round; the output is Dattorro's seven taps a side. SIZE is the decay time (0.5 .. 25 s),

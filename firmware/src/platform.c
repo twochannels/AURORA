@@ -108,7 +108,7 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #define FM1_POOL __attribute__((section(".pool")))   /* big zeroed buffers (app.ld POOL, 336 KiB) */
 #include "libc.c"
 #include "lcd.c"
-#define CV_MAX (240u * 64u)                     /* the biggest text box drawn at once */
+#define CV_MAX (240u * 124u)                    /* the graphic: 240 x 124 at once */
 #include "gfx.c"
 
 #define FS 44100u                               /* the sample rate */

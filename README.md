@@ -15,10 +15,15 @@ sound module for a dawless rig, built for playing rather than sequencing.
   attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
 - **Width**: odd partials lean left, even right (WIDTH); mono-safe.
-- **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock, a phaser.
+- **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock.
 - **Freeze**: FREEZE holds the delay line and plays a cloud of grains off it (GRAIN their length, SPRAY how far back
   they pick, SHIFT their pitch, an octave either way), on into the phaser and the plate: the texture stays after the
   hands have left. Half way it smears away over a minute, at the top it holds for ever.
+- **The screen**: every page is a graphic the four knobs shift, each part drawn in the colour of the knob that
+  moves it: TONE is the spectrum, SHAPE the envelope, SWARM the saws under their filter, AIR the wind, MOVE the
+  sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
+  line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with TILT, SPACE,
+  AIR and FREEZE under the knobs for playing.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad; PLAY latches a drone.
 

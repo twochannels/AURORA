@@ -17,14 +17,15 @@
  *                sources' amounts and the destinations' depths are knobs, MOVE scales it all, RATE its speed, and
  *                DRIFT is a random walk on every partial besides
  *   width        odd partials lean left, even right, by WIDTH: the pad is as wide as you like, mono-safe
- *   space        the plate and its shimmer, the tape delay and the phaser from CS-1; FREEZE holds the delay line and
+ *   space        the plate and its shimmer, the tape delay from CS-1; FREEZE holds the delay line and
  *                scatters grains over it (GRAIN their length, SPRAY how far back they pick, SHIFT their pitch)
  *   MIDI         notes on the MIDI page's channel; CC 80..87 are the eight macros, in the Circuit Tracks' order:
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
  *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands)
- *   pages        HOME (the macros, a weather strip), EDIT: PAD .. AIR; LFO: MOVE .. TARGETS; FX: SPACE, DELAY, PHASER, FREEZE;
- *                GLO: MIDI. KNOB 1..4 the page's parameters. The panel is kept 2 s after the last change.
+ *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SHAPE SWARM AIR;
+ *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
+ *                shift, each part in the colour of its knob. The panel is kept 2 s after the last change.
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. tests/host.c runs this file
  * on a computer; web/emu in the browser. */
 #define APP_NAME "AURORA"
@@ -42,7 +43,7 @@
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
 typedef struct {
-    uint8_t tilt, spread, bright, attack, release, bloom, detune, pd_level;   /* the pad; DETUNE spreads each low partial into a pair */
+    uint8_t tilt, spread, bright, attack, release, bloom, detune;   /* the pad; DETUNE spreads each low partial into a pair */
     uint8_t sw_level, sw_spread, sw_cut, sw_res;                 /* the swarm: its level, detune, filter cutoff and resonance */
     uint8_t air_tone, air_tex, air_breath;                       /* the air: its colour, wind against crackle, how slowly it breathes */
     uint8_t move, rate, drift, width, air;                       /* movement, width, the air's level (the AIR macro) */
@@ -51,20 +52,18 @@ typedef struct {
     uint8_t swell;                                               /* how much pressure / expression opens the pad */
     uint8_t dly_time, dly_fb, dly_mix, dly_ping, dly_damp, dly_sync, dly_tape;   /* the delay (aurora_fx.h) */
     uint8_t rv_mix, rv_size, rv_damp, rv_shim, rv_shift;         /* the plate and its shimmer */
-    uint8_t ph_rate, ph_depth, ph_fb, ph_mix;                    /* the phaser */
     uint8_t freeze, frz_grain, frz_spray, frz_shift;              /* FREEZE: the delay line held, grains over it (aurora_fx.h) */
     uint8_t volume;
 } patch_t;
 static patch_t patch;
 static const patch_t INIT_PATCH = {
-    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36, .pd_level = 127,
+    .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .release = 80, .bloom = 40, .detune = 36,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
     .air_tone = 60, .air_tex = 30, .air_breath = 70,
     .move = 64, .rate = 30, .drift = 30, .width = 70, .air = 0, .swell = 64,
     .src_wander = 100, .src_walk = 50, .src_chaos = 40, .src_tide = 80, .to_tilt = 80, .to_colour = 50, .to_pitch = 25, .to_space = 40,
     .dly_time = 90, .dly_fb = 50, .dly_mix = 0, .dly_ping = 1, .dly_damp = 50, .dly_sync = 0, .dly_tape = 40,
     .rv_mix = 60, .rv_size = 100, .rv_damp = 50, .rv_shim = 0, .rv_shift = 12,
-    .ph_rate = 20, .ph_depth = 64, .ph_fb = 30, .ph_mix = 0,
     .freeze = 0, .frz_grain = 80, .frz_spray = 70, .frz_shift = 12,
     .volume = 100,
 };
@@ -230,7 +229,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         lv = mulq15(lv, 32767 + (mulq15(w->walk[k], 16000)));               /* the walk: +-half */
         if (k && swell) lv += mulq15(32767 - lv, mulq15(swell, (int32_t)k * 2700));   /* pressure opens the upper partials */
         if (patch.bloom && w->t * 4u < (uint32_t)patch.bloom * k) lv = 0;   /* BLOOM: partial k enters bloom x k / 4 blocks in */
-        target[k] = mulq15(mulq15(lv, env_q15), (int32_t)patch.pd_level * 258) / (int32_t)(2 + (k >> 1));   /* the spectral shape */
+        target[k] = mulq15(lv, env_q15) / (int32_t)(2 + (k >> 1));   /* the spectral shape */
         sum += target[k];
     }
     {                                              /* the sum of the partials is the voice's worst-case peak: capped, so */
@@ -323,9 +322,10 @@ static struct {
     int32_t wander, wtarget;                       /* the centre's random LFO */
     int32_t env;                                   /* follows the pad, Q15 */
     uint32_t bph;                                  /* the breath's phase */
+    int32_t gain;                                  /* the breath now, Q15 (the screen) */
     int32_t ic[2][2];
     svf_t c[2];
-} air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, 0x99999999u, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
+} air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, 0x99999999u, 32767, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
 static void air_block(int32_t *st, uint32_t n)
 {
     int32_t level = ((int32_t)patch.air * patch.air * patch.air) >> 6, target = 0, i, side;   /* cubic (127^3 / 64 = 32005): a soft undertone over most of the knob, loud at the top */
@@ -343,8 +343,8 @@ static void air_block(int32_t *st, uint32_t n)
         ph = air.bph < 0x99999999u ? (air.bph >> 8) * 213u : 0x80000000u + ((air.bph - 0x99999999u) >> 8) * 320u;   /* 0..60 % -> the rise, the rest the fall */
         breath = (32767 - sine_r(ph + 0x40000000u)) >> 1;                      /* 0 at the trough, 1 at the peak */
         target = 8192 + mulq15(breath, 24575);                                   /* -12 dB at the trough, full at the peak */
-        level = mulq15(level, target);
-    } else air.bph = 0x99999999u;                  /* held: ready to leave from the peak */
+        level = mulq15(level, target); air.gain = target;
+    } else { air.bph = 0x99999999u; air.gain = 32767; }                  /* held: ready to leave from the peak */
     for (side = 0; side < 2; side++) {             /* two filters, a little apart: the air is wide */
         int32_t cut16 = (40 + (int32_t)patch.air_tone * 80 / 127) * 16 + ((mulq15(air.wander, 12 * 16)) ) + mv_spread * 4 + (side ? 3 * 16 : -3 * 16);
         svf_coef(&air.c[side], cut16, SVF_K(70));
@@ -390,7 +390,6 @@ static void app_audio(int32_t *out, uint32_t n)
     }
     air_block(g_st, HALF_FRAMES);
     fx_delay(g_st, HALF_FRAMES);
-    fx_phaser(g_st, HALF_FRAMES);
     {                                              /* SPACE: the wet on top of the dry, the dry down to half at full */
         int32_t dry = 32767 - rv_mix_now * 129;
         if (submitted) {
@@ -448,64 +447,75 @@ typedef struct {
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA6u
-
-/* ---- the pages */
-enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_DIV, K_SEMI };
-enum { CW = 0, CG, CR, CK, CY, CS };                     /* a cap: white, green, red, black, yellow, silver */
-typedef struct { const char *name; uint8_t off, max, kind, global, color; const char *hi, *lo; } pdesc_t;
-#define PA(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0, c, hi, lo}
-#define ST(f, name, max, kind, c, hi, lo) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1, c, hi, lo}
-#define NONE {0, 0, 0, 0, 0, 0, 0, 0}
-typedef struct { const char *title; pdesc_t p[4]; } page_t;
-enum { PG_HOME = 0, PG_PAD, PG_PAD2, PG_PAD3, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_PHASER, PG_FREEZE, PG_MIDI, NPAGE };
+#define SET_MAGIC 0xA7u
+/* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
+enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI };
+typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
+#define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
+#define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
+#define NONE {0, 0, 0, 0, 0}
+enum { PG_HOME = 0, PG_TONE, PG_SHAPE, PG_SWARM, PG_AIR, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
+static void draw_aurora(void), draw_tone(void), draw_shape(void), draw_swarm(void), draw_air(void), draw_move(void),
+            draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
-    {"AURORA", {NONE, NONE, NONE, NONE}},
-    {"PAD",    {PA(tilt, "TILT", 127, K_NUM, CW, "DARK", "FULL"), PA(spread, "SPREAD", 127, K_NUM, CW, "EVEN", "ODD"),
-                PA(bright, "BRIGHT", 127, K_NUM, CG, "OPEN", "LOW"), PA(bloom, "BLOOM", 127, K_NUM, CY, "SLOW", "AT ONCE")}},
-    {"PAD 2",  {PA(attack, "ATTACK", 127, K_NUM, CK, "LONG", "SHORT"), PA(release, "RELEASE", 127, K_NUM, CK, "LONG", "SHORT"),
-                PA(swell, "SWELL", 127, K_NUM, CG, "10", "0"), PA(volume, "VOLUME", 127, K_NUM, CK, "10", "0")}},
-    {"PAD 3",  {PA(detune, "DETUNE", 127, K_NUM, CW, "WIDE", "PURE"), PA(pd_level, "LEVEL", 127, K_NUM, CW, "10", "0"), NONE, NONE}},
-    {"SWARM",  {PA(sw_level, "LEVEL", 127, K_NUM, CW, "10", "0"), PA(sw_spread, "SPREAD", 127, K_NUM, CW, "WIDE", "TIGHT"),
-                PA(sw_cut, "CUTOFF", 127, K_NUM, CG, "OPEN", "DARK"), PA(sw_res, "RESO", 127, K_NUM, CR, "10", "0")}},
-    {"AIR",    {PA(air, "AIR", 127, K_NUM, CW, "10", "0"), PA(air_tone, "TONE", 127, K_NUM, CG, "BRIGHT", "DARK"),
-                PA(air_tex, "TEXTUR", 127, K_NUM, CY, "CRACKL", "WIND"), PA(air_breath, "BREATH", 127, K_NUM, CS, "FAST", "HELD")}},
-    {"MOVE",   {PA(move, "MOVE", 127, K_NUM, CW, "10", "0"), PA(rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"),
-                PA(drift, "DRIFT", 127, K_NUM, CW, "10", "0"), PA(width, "WIDTH", 127, K_NUM, CS, "WIDE", "MONO")}},
-    {"SOURCES", {PA(src_wander, "WANDER", 127, K_NUM, CW, "10", "0"), PA(src_walk, "WALK", 127, K_NUM, CW, "10", "0"),
-                PA(src_chaos, "CHAOS", 127, K_NUM, CY, "10", "0"), PA(src_tide, "TIDE", 127, K_NUM, CS, "10", "0")}},
-    {"TARGETS", {PA(to_tilt, "TILT", 127, K_NUM, CW, "10", "0"), PA(to_colour, "COLOUR", 127, K_NUM, CW, "10", "0"),
-                PA(to_pitch, "PITCH", 127, K_NUM, CY, "10", "0"), PA(to_space, "SPACE", 127, K_NUM, CS, "10", "0")}},
-    {"SPACE",  {PA(rv_mix, "MIX", 127, K_NUM, CS, "10", "0"), PA(rv_size, "SIZE", 127, K_NUM, CW, "LONG", "SHORT"),
-                PA(rv_damp, "DAMP", 127, K_NUM, CG, "10", "0"), PA(rv_shim, "SHIMMR", 127, K_NUM, CY, "10", "0")}},
-    {"DELAY",  {PA(dly_time, "TIME", 127, K_NUM, CW, "LONG", "SHORT"), PA(dly_fb, "FEEDBK", 127, K_NUM, CW, "10", "0"),
-                PA(dly_mix, "MIX", 127, K_NUM, CS, "10", "0"), PA(dly_tape, "TAPE", 127, K_NUM, CY, "10", "0")}},
-    {"PHASER", {PA(ph_rate, "RATE", 127, K_NUM, CW, "FAST", "SLOW"), PA(ph_depth, "DEPTH", 127, K_NUM, CG, "10", "0"),
-                PA(ph_fb, "FEEDBK", 127, K_NUM, CR, "10", "0"), PA(ph_mix, "MIX", 127, K_NUM, CS, "10", "0")}},
-    {"FREEZE", {PA(freeze, "FREEZE", 127, K_NUM, CS, "10", "0"), PA(frz_grain, "GRAIN", 127, K_NUM, CW, "LONG", "SHORT"),
-                PA(frz_spray, "SPRAY", 127, K_NUM, CY, "WIDE", "TIGHT"), PA(frz_shift, "SHIFT", 24, K_SEMI, CG, "+12", "-12")}},
-    {"MIDI",   {ST(midi_chan, "CHAN", 16, K_MCHAN, CW, "16", "OMNI"), ST(expr, "EXPR", 127, K_EXPR, CW, "CC", "AT"), NONE, NONE}},
+    {"AURORA",  draw_aurora, 1, {PA(tilt, "TILT", 127, K_NUM), PA(rv_mix, "SPACE", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(freeze, "FREEZE", 127, K_NUM)}},
+    {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
+    {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM), PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM)}},
+    {"SWARM",   draw_swarm,  0, {PA(sw_level, "LEVEL", 127, K_NUM), PA(sw_spread, "SPREAD", 127, K_NUM), PA(sw_cut, "CUTOFF", 127, K_NUM), PA(sw_res, "RESO", 127, K_NUM)}},
+    {"AIR",     draw_air,    1, {PA(air, "AIR", 127, K_NUM), PA(air_tone, "TONE", 127, K_NUM), PA(air_tex, "TEXTUR", 127, K_NUM), PA(air_breath, "BREATH", 127, K_NUM)}},
+    {"MOVE",    draw_move,   1, {PA(move, "MOVE", 127, K_NUM), PA(rate, "RATE", 127, K_NUM), PA(drift, "DRIFT", 127, K_NUM), PA(width, "WIDTH", 127, K_NUM)}},
+    {"SOURCES", draw_matrix, 1, {PA(src_wander, "WANDER", 127, K_NUM), PA(src_walk, "WALK", 127, K_NUM), PA(src_chaos, "CHAOS", 127, K_NUM), PA(src_tide, "TIDE", 127, K_NUM)}},
+    {"TARGETS", draw_matrix, 1, {PA(to_tilt, "TILT", 127, K_NUM), PA(to_colour, "COLOUR", 127, K_NUM), PA(to_pitch, "PITCH", 127, K_NUM), PA(to_space, "SPACE", 127, K_NUM)}},
+    {"SPACE",   draw_space,  0, {PA(rv_mix, "MIX", 127, K_NUM), PA(rv_size, "SIZE", 127, K_NUM), PA(rv_damp, "DAMP", 127, K_NUM), PA(rv_shim, "SHIMMR", 127, K_NUM)}},
+    {"DELAY",   draw_delay,  0, {PA(dly_time, "TIME", 127, K_NUM), PA(dly_fb, "FEEDBK", 127, K_NUM), PA(dly_mix, "MIX", 127, K_NUM), PA(dly_tape, "TAPE", 127, K_NUM)}},
+    {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
+    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_PAD, 5}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
-                                             {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_MIDI, 1}};
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+                                             {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
     {"MOVE", offsetof(patch_t, move)}, {"SPACE", offsetof(patch_t, rv_mix)}, {"AIR", offsetof(patch_t, air)}, {"TILT", offsetof(patch_t, tilt)},
     {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, freeze)}, {"BLOOM", offsetof(patch_t, bloom)}};
 
-/* ---- the screen */
+static uint32_t clk_last, last_midi_ms;       /* (the MIDI clock's and the last message's time: below) */
+/* ---- the screen: a header, a graphic the four knobs shift (240 x 124 at y 26), the four knobs under it in their
+ * colours, a status line. Every page's graphic is the thing its knobs change, each part drawn in the colour of the
+ * knob that moves it: green, blue, violet, amber, left to right. HOME is the aurora: the sound, drawn. */
 #define C_PANEL RGB(14, 16, 24)                           /* a night sky */
 #define C_SILK RGB(214, 222, 232)
 #define C_LEG RGB(104, 116, 136)
 #define C_RULE RGB(60, 70, 90)
-#define C_ACC RGB(120, 230, 190)                          /* the aurora's green */
-#define C_ACC2 RGB(180, 120, 230)
 #define C_SLOT RGB(6, 7, 12)
+#define GY 26
+#define GH 124
+#define KY 154
+static const uint16_t KC[4] = {RGB(120, 230, 190), RGB(90, 170, 255), RGB(220, 120, 230), RGB(240, 190, 70)};
 #define KEY0 53u
-static const uint16_t CAP[6] = {RGB(236, 234, 226), RGB(0, 150, 92), RGB(214, 40, 56), RGB(62, 62, 68), RGB(236, 200, 40), RGB(160, 160, 168)};
 static uint32_t page = PG_HOME;
+static uint32_t ui_rng = 0x9E3779B9u;
 static uint8_t *param_ptr(const pdesc_t *d) { return d->global ? (uint8_t *)&set + d->off : (uint8_t *)&patch + d->off; }
+static inline uint16_t blend(uint16_t a, uint16_t b, uint32_t t)   /* a to b by t, 0..256 */
+{
+    uint32_t u = 256u - t;
+    uint32_t r = ((a >> 11) * u + (b >> 11) * t) >> 8, g = (((a >> 5) & 63u) * u + ((b >> 5) & 63u) * t) >> 8, bl = ((a & 31u) * u + (b & 31u) * t) >> 8;
+    return (uint16_t)(r << 11 | g << 5 | bl);
+}
+static inline uint16_t dim(uint16_t c, uint32_t t) { return blend(C_PANEL, c, t); }   /* a colour at t / 256 over the panel */
+static void cv_hline(int32_t x0, int32_t x1, int32_t y, uint16_t c) { if (x1 < x0) { int32_t t = x0; x0 = x1; x1 = t; } cv_rect(x0, y, x1 - x0 + 1, 1, c); }
+static void cv_vline(int32_t x, int32_t y0, int32_t y1, uint16_t c) { if (y1 < y0) { int32_t t = y0; y0 = y1; y1 = t; } cv_rect(x, y0, 1, y1 - y0 + 1, c); }
+static void cv_dot(int32_t x, int32_t y, int32_t r, uint16_t c)
+{
+    int32_t dx, dy;
+    for (dy = -r; dy <= r; dy++) for (dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r + r) cv_pset(x + dx, y + dy, c);
+}
+static void cv_curve(const int16_t *ys, int32_t x0, int32_t n, uint16_t c)   /* a polyline of n heights from x0 */
+{
+    int32_t i;
+    for (i = 1; i < n; i++) cv_line(x0 + i - 1, ys[i - 1], x0 + i, ys[i], c);
+}
 static void text_box(uint32_t x, uint32_t y, uint32_t w, const char *str, uint16_t c, int align)
 {
     int32_t tw = text_w(&FONT_S, str), tx = align == 1 ? ((int32_t)w - tw) / 2 : align == 2 ? (int32_t)w - tw : 0;
@@ -535,11 +545,11 @@ static void draw_header(void)
     const page_t *pg = &PAGES[page];
     char s[8];
     int32_t w = text_w(&FONT_S, pg->title), x0 = (240 - w) / 2;
-    int32_t rl = PAGE_GROUP[page][1] > 1u ? 32 : 8, rr = page == PG_MIDI ? 232 - text_w(&FONT_S, "V" APP_VER) : 240 - 14;
+    int32_t rl = PAGE_GROUP[page][1] > 1u ? 32 : 8, rr = page == PG_MIDI ? 232 - text_w(&FONT_S, "V" APP_VER) : 240 - 8;
     cv_begin(240, 24, C_PANEL);
     cv_rect(rl, 12, x0 - 6 - rl, 1, C_RULE);
     cv_rect(x0 + w + 6, 12, rr - (x0 + w + 6), 1, C_RULE);
-    cv_text(x0, 4, &FONT_S, pg->title, page == PG_HOME ? C_ACC : C_SILK);
+    cv_text(x0, 4, &FONT_S, pg->title, page == PG_HOME ? KC[0] : C_SILK);
     if (page == PG_MIDI) cv_text(238 - text_w(&FONT_S, "V" APP_VER), 4, &FONT_S, "V" APP_VER, C_LEG);
     if (PAGE_GROUP[page][1] > 1u) {
         s[0] = (char)('1' + page - PAGE_GROUP[page][0]); s[1] = '/'; s[2] = (char)('0' + PAGE_GROUP[page][1]); s[3] = 0;
@@ -547,89 +557,380 @@ static void draw_header(void)
     }
     cv_blit(0, 0);
 }
-static void draw_param(uint32_t k)
+static void draw_knob(uint32_t k)       /* a knob's cell: its bar in its colour, the value, the name */
 {
     const pdesc_t *d = &PAGES[page].p[k];
-    uint32_t v, i;
-    int32_t y, x = 60 * (int32_t)k;
     char s[8];
-    cv_begin(60, 136, C_PANEL);
-    if (!d->name) { cv_blit(x, 26); return; }
-    v = *param_ptr(d);
-    if (d->hi) cv_text(19 - (text_w(&FONT_S, d->hi) >> 1), 0, &FONT_S, d->hi, C_LEG);
-    cv_rect(16, 22, 7, 80, C_SLOT);
-    for (i = 0; i < 11u; i++) { cv_rect(9, 26 + (int32_t)i * 7, 5, 1, C_LEG); cv_rect(25, 26 + (int32_t)i * 7, 5, 1, C_LEG); }
-    y = 98 - (int32_t)(v * 72u / (d->max ? d->max : 1u));
-    cv_rect(8, y - 4, 23, 9, CAP[d->color]);
-    cv_rect(8, y - 4, 23, 1, RGB(255, 255, 255));
-    fmt_value(d, v, s);
-    cv_text(33, y - 8, &FONT_S, s, C_SILK);
-    if (d->lo) cv_text(19 - (text_w(&FONT_S, d->lo) >> 1), 106, &FONT_S, d->lo, C_LEG);
-    { int32_t w = text_w(&FONT_S, d->name), tx = 19 - (w >> 1); cv_text(tx < 0 ? 0 : tx + w > 60 ? 60 - w : tx, 122, &FONT_S, d->name, C_SILK); }
-    cv_blit(x, 26);
+    cv_begin(60, 50, C_PANEL);
+    if (d->name) {
+        uint32_t v = *param_ptr(d);
+        int32_t w;
+        cv_rect(6, 0, 48, 3, C_SLOT);
+        cv_rect(6, 0, (int32_t)(v * 48u / (d->max ? d->max : 1u)), 3, KC[k]);
+        fmt_value(d, v, s);
+        w = text_w(&FONT_S, s); cv_text(30 - (w >> 1), 9, &FONT_S, s, C_SILK);
+        w = text_w(&FONT_S, d->name); cv_text(30 - (w >> 1), 30, &FONT_S, d->name, C_LEG);
+    }
+    cv_blit(60u * k, KY);
 }
-/* HOME: the eight macros as bars, in the Circuit Tracks' order */
-static void draw_home(void)
+static void draw_graphic(void) { cv_begin(240, GH, C_PANEL); PAGES[page].draw(); cv_blit(0, GY); }
+static int32_t decay_px(int32_t h, uint32_t e) { return e >> 10 > 14u ? 0 : (h * (int32_t)EXP2N_Q15[(e & 1023u) >> 2]) >> (15 + (int32_t)(e >> 10)); }   /* h x 2^(-e / 1024) */
+static uint32_t sound_level(void)       /* the voices' envelopes summed, Q15, capped */
 {
-    uint32_t k;
-    char s[8];
-    for (k = 0; k < 8u; k++) {
-        uint32_t v = *((uint8_t *)&patch + MACRO[k].off);
-        int32_t y = 30 + (int32_t)k * 17, w = (int32_t)(v * 120u / 127u);
-        cv_begin(240, 17, C_PANEL);
-        cv_text(0, 0, &FONT_S, MACRO[k].name, C_LEG);
-        cv_rect(64, 4, 122, 9, C_SLOT);
-        cv_rect(65, 5, w, 7, k & 1u ? C_ACC2 : C_ACC);
-        fmt_value(&PAGES[PG_PAD].p[0], v, s);
-        cv_text(196, 0, &FONT_S, s, C_SILK);
-        cv_blit(0, y);
+    uint32_t v, n = 0;
+    for (v = 0; v < NV; v++) n += (uint32_t)voices[v].env >> 9;
+    return n > 32767u ? 32767u : n;
+}
+
+/* HOME: the aurora. Three curtains, each a sum of two waves across the screen, bent by the movement's own sources
+ * (the walk, the chaos, the tide) and lit by what is sounding: TILT the green, SPREAD the top colour, BRIGHT the
+ * height, WIDTH the wavelength, RATE the drift, SPACE a haze, AIR sparks and stronger rays, FREEZE ice. Each held
+ * note is a ray at its pitch. */
+static const uint8_t AU_PROF[32] = {150, 255, 245, 232, 218, 204, 190, 176, 163, 150, 138, 126, 115, 104, 94, 84, 75, 66, 58, 50, 43, 37, 31, 26, 21, 17, 13, 10, 7, 5, 3, 1};
+static uint32_t au_ph[3];
+static int32_t au_glow;
+static int16_t au_yc[3][240];
+static uint8_t au_ray[240];
+static void draw_aurora(void)
+{
+    static const int16_t BASE[3] = {98, 74, 54}, AMP1[3] = {14, 10, 8}, AMP2[3] = {6, 5, 4};
+    uint16_t col[3][8];
+    uint32_t c, x, y, kx, kx2, inc, lv = sound_level();
+    int32_t th[3], step[3], off[3], ints, frz = (int32_t)patch.freeze * 2, m = patch.move, v;
+    au_glow += ((int32_t)lv - au_glow) >> 2;
+    ints = 80 + ((au_glow * 176) >> 15);                                                   /* the light: 80 at rest, full while sounding */
+    ints = ints - ((ints * patch.rv_mix) >> 9);                                            /* the haze dims it a little */
+    inc = (10000000u + (uint32_t)patch.rate * 1600000u) / 127u * (uint32_t)(127 - patch.freeze);   /* the waves' drift: 40 s a cycle to 2 s, stopped by the ice */
+    au_ph[0] += inc; au_ph[1] -= inc + (inc >> 1); au_ph[2] += inc >> 1;
+    kx = 0xFFFFFFFFu / (120u + (uint32_t)patch.width * 240u / 127u); kx2 = kx * 2u + (kx >> 1);  /* the wavelength: 120 px narrow, 360 wide */
+    off[0] = (mv.src[0] * (20 + m * 40 / 127)) >> 15; off[1] = (mv.src[2] * (16 + m * 32 / 127)) >> 15; off[2] = (mv.src[5] * (12 + m * 24 / 127)) >> 15;
+    th[0] = 30 + patch.bright * 24 / 127 + patch.rv_mix * 16 / 127; th[1] = 24 + patch.rv_mix * 12 / 127; th[2] = 18 + patch.rv_mix * 8 / 127;
+    for (c = 0; c < 3u; c++) {
+        uint16_t lo, hi;
+        uint32_t i;
+        step[c] = (32 << 8) / th[c];
+        if (c == 0) { lo = blend(RGB(40, 200, 120), RGB(180, 255, 220), (uint32_t)(127 - patch.tilt) * 2u); hi = blend(RGB(90, 80, 230), RGB(230, 70, 120), (uint32_t)patch.spread * 2u); }
+        else if (c == 1) { lo = RGB(80, 200, 220); hi = RGB(150, 80, 230); }
+        else { lo = RGB(120, 140, 255); hi = RGB(200, 90, 200); }
+        for (i = 0; i < 8u; i++) col[c][i] = blend(blend(lo, hi, i * 36u), RGB(190, 220, 255), (uint32_t)frz);
+    }
+    for (x = 0; x < 240u; x++) {
+        int32_t r = 128 + ((sine_i(x * (kx * 3u) + au_ph[1] * 2u) * (100 + patch.air * 100 / 127)) >> 15);
+        for (c = 0; c < 3u; c++) {
+            int32_t w = (AMP1[c] * sine_i(x * kx + au_ph[0] + c * 0x30000000u) + AMP2[c] * sine_i(x * kx2 - au_ph[1] + c * 0x50000000u)) >> 15;
+            au_yc[c][x] = (int16_t)(BASE[c] + off[c] + w);
+        }
+        au_ray[x] = (uint8_t)(r < 0 ? 0 : r > 255 ? 255 : r);
+    }
+    for (v = 0; v < (int32_t)NV; v++)                   /* a ray a note, at its pitch */
+        if (voices[v].active) {
+            int32_t xn = ((int32_t)voices[v].note - 36) * 4, e = voices[v].env >> 9, d;
+            for (d = -5; d <= 5; d++) {
+                int32_t xx = xn + d, b;
+                if (xx < 0 || xx > 239) continue;
+                b = au_ray[xx] + ((e * (6 - (d < 0 ? -d : d)) * 50) >> 15);
+                au_ray[xx] = (uint8_t)(b > 255 ? 255 : b);
+            }
+        }
+    for (y = 0; y < GH; y++) {
+        uint16_t *row = cv_px + y * 240u;
+        for (x = 0; x < 240u; x++) {
+            uint16_t p = C_PANEL;
+            int32_t hit = 0;
+            for (c = 3; c-- > 0;) {                    /* the faint high one first, the main one over it */
+                int32_t d = au_yc[c][x] - (int32_t)y, i, t;
+                if (d < 0 || d >= th[c]) continue;
+                i = (d * step[c]) >> 8;
+                t = (((int32_t)AU_PROF[i] * au_ray[x]) >> 8) * ints >> 8;
+                p = blend(p, col[c][i >> 2], (uint32_t)(t > 255 ? 255 : t));
+                hit = 1;
+            }
+            if (hit) row[x] = swap16(p);
+        }
+    }
+    {   /* stars, and the air's sparks */
+        uint32_t s = 0x1234567u, i, n = 24u + (uint32_t)patch.air * 40u / 127u;
+        for (i = 0; i < n; i++) {
+            uint32_t r = i < 24u ? noise32(&s) : noise32(&ui_rng);
+            cv_pset((int32_t)((r >> 8) % 240u), (int32_t)((r >> 16) % GH), dim(i < 24u ? C_SILK : RGB(230, 240, 255), i < 24u ? 60u + (r & 63u) : 100u + (r & 127u)));
+        }
     }
 }
-static void draw_page(void)
+
+/* TONE: the twelve partials as bars, the real shape; the tilt's slope, the brightness ceiling, the pairs */
+static int32_t shape_level(uint32_t k, int32_t tilt16, int32_t spread, int32_t bright)
 {
-    uint32_t k;
-    lcd_fill(0, 0, 240, 240, C_PANEL);
-    draw_header();
-    if (page == PG_HOME) { draw_home(); return; }
-    for (k = 0; k < 4u; k++) draw_param(k);
+    int32_t lv = 32767, j;
+    for (j = 0; j < (int32_t)k; j++) lv -= (lv * tilt16) >> 11;
+    if (k & 1u) lv = mulq15(lv, 32767 - spread * 256); else lv = mulq15(lv, 32767 + spread * 256);
+    if ((int32_t)k * 10 > bright) lv = mulq15(lv, clamp(32767 - ((int32_t)k * 10 - bright) * 400, 0, 32767));
+    return lv / (2 + (int32_t)(k >> 1));
 }
-/* the strip at 166..196: the output level, the pressure, the voices; on the MOVE pages the four sources, live */
-static int32_t meter_hold;
-static void draw_sources(void)
+static void draw_tone(void)
+{
+    int32_t tilt16 = patch.tilt * 16, spread = (int32_t)patch.spread - 64, bright = patch.bright, k, top = 112, hf_prev = 0;
+    cv_hline(4, 236, top + 1, C_RULE);
+    for (k = 0; k < (int32_t)NP; k++) {
+        int32_t lv = shape_level((uint32_t)k, tilt16, spread, bright) * 2, h = (lv * 100) >> 15, x = 8 + k * 19;
+        int32_t flat = shape_level((uint32_t)k, 0, 0, 127) * 2, hf = (flat * 100) >> 15;
+        uint16_t c = spread > 0 ? (k & 1 ? KC[1] : C_LEG) : spread < 0 ? (k & 1 ? C_LEG : KC[1]) : C_LEG;   /* the side SPREAD favours in its colour */
+        if (h < 1) h = 1;
+        if (x > 236 - 14) break;
+        if (k < (int32_t)NPAIR && patch.detune) {                                           /* a pair: two bars a little apart */
+            int32_t g = 1 + patch.detune * 4 / 127;
+            cv_rect(x, top - h, 7 - g / 2, h, c); cv_rect(x + 7 + g, top - h, 7 - g / 2, h, KC[3]);
+        } else cv_rect(x, top - h, 14, h, c);
+        if (k) cv_line(x - 12, top - hf_prev - 1, x + 7, top - hf - 1, dim(KC[0], 90));   /* the untilted slope: a faint curve through where the tops would be */
+        hf_prev = hf;
+        cv_rect(x, top - h - 1, 14, 1, KC[0]);
+    }
+    {   /* BRIGHT: the ceiling, the shade over everything above it */
+        int32_t xb = 8 + (bright / 10) * 19 + (bright % 10) * 19 / 10, x;
+        for (x = xb + 3; x < 236; x += 3) cv_vline(x, 2, top - 1, dim(KC[2], 28u));
+        cv_vline(xb, 2, top, KC[2]);
+    }
+}
+
+/* SHAPE: the envelope. A linear attack, held, an exponential release; BLOOM the later partials' later entries;
+ * SWELL how far pressure lifts it; the loudest voice's place on it, live. */
+static void draw_shape(void)
+{
+    int32_t ax = 8 + patch.attack * 70 / 127, rx = 12 + patch.release * 110 / 127, hold = 36, x0 = 10, base = 108, top = 36;
+    int32_t xs = x0 + ax + hold, i, b;
+    for (b = 2; b >= 0; b--) {                                /* BLOOM: the partials coming in later, the ghosts behind the line */
+        int32_t dx = b * (2 + patch.bloom * 10 / 127);
+        if (b && patch.bloom) cv_line(x0 + dx, base, x0 + ax + dx, top + b * 10, dim(KC[2], 110 + 50 * (3 - b)));
+    }
+    cv_line(x0, base, x0 + ax, top, KC[0]);                   /* the attack */
+    cv_hline(x0 + ax, xs, top, C_SILK);                       /* held */
+    for (i = 0; i < rx && xs + i < 238; i++)                  /* the release: 2^(-6 i / rx) */
+        cv_line(xs + i, base - decay_px(base - top, (uint32_t)(i * 6 * 1024 / rx)), xs + i + 1, base - decay_px(base - top, (uint32_t)((i + 1) * 6 * 1024 / rx)), KC[1]);
+    if (patch.swell) {                                        /* SWELL: the dashed line pressure can reach */
+        int32_t ys = top - patch.swell * 20 / 127;
+        for (i = x0 + ax; i < xs; i += 6) cv_hline(i, i + 2, ys, KC[3]);
+        cv_line(x0 + ax - 4, top, x0 + ax - 4 + 0, ys, dim(KC[3], 140));
+    }
+    cv_hline(4, 236, base + 1, C_RULE);
+    {   /* where the loudest voice is */
+        int32_t v, best = -1, e = 0;
+        for (v = 0; v < (int32_t)NV; v++) if (voices[v].active && voices[v].env > e) { e = voices[v].env; best = v; }
+        if (best >= 0) {
+            int32_t x, y, lg = 0, q = e;
+            if (voices[best].stage == 1) { x = x0 + ((e >> 9) * ax >> 15); y = base - ((e >> 9) * (base - top) >> 15); }
+            else if (voices[best].stage == 2) { x = x0 + ax + ((int32_t)(voices[best].t > 4000u ? 4000u : voices[best].t) * hold / 4000); y = top; }
+            else {                                            /* release: x from how far down it is, in octaves */
+                while (q < (1 << 24) && lg < 24) { q <<= 1; lg++; }
+                x = xs + lg * rx / 20; y = base - (((e >> 9) * (base - top)) >> 15);
+            }
+            cv_dot(x > 236 ? 236 : x, y, 3, C_SILK);
+        }
+    }
+}
+
+/* SWARM: five saws fanned apart, under the filter's curve */
+static void draw_swarm(void)
+{
+    int32_t k, x, lvl = 40 + patch.sw_level * 216 / 127, fan = 3 + patch.sw_spread * 9 / 127;
+    int32_t xc = 24 + patch.sw_cut * 190 / 127, bump = patch.sw_res * 28 / 127;
+    for (k = 0; k < (int32_t)NSW; k++) {
+        int32_t yc = 86 + (k - 2) * fan, ph = k * 9;
+        uint16_t c = dim(k == 2 ? KC[0] : KC[1], (uint32_t)lvl);
+        for (x = 8; x < 230; x++) {
+            int32_t p = (x + ph) % 12, y0 = yc + 6 - p * 12 / 11;
+            if (p == 11) cv_vline(x + 1, yc - 6, yc + 6, c); else cv_line(x, y0, x + 1, yc + 6 - (p + 1) * 12 / 11, c);
+        }
+    }
+    for (x = 8; x < 232; x++) {                               /* the low-pass: flat, a bump at the cutoff, then falling */
+        int32_t d = x - xc, y;
+        if (d < -16) y = 28;
+        else if (d <= 0) y = 28 - bump * (16 + d) / 16;
+        else y = 28 - bump + d * d / 40 + d / 2;
+        if (y > 70) break;
+        cv_pset(x, y, d > -16 && d <= 4 ? KC[3] : KC[2]);
+        cv_pset(x, y + 1, dim(d > -16 && d <= 4 ? KC[3] : KC[2], 120));
+    }
+    cv_vline(xc, 30 - bump, 68, dim(KC[2], 90));
+}
+
+/* AIR: the wind, a trace that breathes; the band's hump at TONE; the crackle's sparks */
+static void draw_air(void)
+{
+    int32_t x, amp, lvl = ((int32_t)patch.air * patch.air * patch.air) >> 6, y = 70, xt = 20 + patch.air_tone * 200 / 127;
+    uint32_t i, n = (uint32_t)patch.air_tex * 30u / 127u;
+    amp = 2 + ((lvl * mulq15(air.env, air.gain)) >> 15) * 40 / 32005;
+    for (x = 8; x < 232; x++) {                               /* a random walk, wider by the level, fresh each frame */
+        int32_t ny = y + (int32_t)(noise32(&ui_rng) >> 29) - 3;
+        if (ny < 70 - amp) ny = 70 - amp; if (ny > 70 + amp) ny = 70 + amp;
+        cv_line(x, y, x + 1, ny, dim(KC[0], 120u + (uint32_t)lvl * 136u / 32005u)); y = ny;
+    }
+    for (x = 8; x < 232; x++) {                               /* the band-pass: a hump around TONE */
+        int32_t d = x - xt, h = 30 * 400 / (400 + d * d / 4);
+        cv_pset(x, 40 - h, KC[1]);
+    }
+    cv_vline(xt, 8, 40, dim(KC[1], 100));
+    for (i = 0; i < n; i++) {                                 /* the crackle */
+        uint32_t r = noise32(&ui_rng);
+        cv_dot(8 + (int32_t)((r >> 8) % 224u), 70 - amp - 2 - (int32_t)((r >> 16) % 12u), (int32_t)(r & 1u), KC[2]);
+    }
+    {   /* the breath: a bar filling and emptying with it */
+        int32_t w = (air.gain * 60) >> 15;
+        cv_rect(170, 110, 62, 5, C_SLOT); cv_rect(171, 111, w, 3, KC[3]);
+        cv_text(170 - text_w(&FONT_S, "BREATH") - 4, 104, &FONT_S, "BREATH", C_LEG);
+    }
+}
+
+/* MOVE: the four sources scrolling, twelve seconds of them; DRIFT a partial's own walk; WIDTH the stereo */
+static int8_t hist[5][120];
+static uint32_t hist_n;
+static void hist_tick(void)             /* every 100 ms, whatever page */
+{
+    int32_t v[5], k, n = 0;
+    v[0] = 0;
+    for (k = 0; k < (int32_t)NV; k++) if (voices[k].active) { v[0] += voices[k].wander; n++; }
+    v[0] = n ? v[0] / n : 0;
+    v[1] = mv.src[0]; v[2] = mv.src[2]; v[3] = mv.src[5]; v[4] = mulq15(voices[0].walk[1], 32767);
+    for (k = 0; k < 5; k++) hist[k][hist_n % 120u] = (int8_t)(clamp(v[k], -16383, 16383) >> 7);
+    hist_n++;
+}
+static void draw_traces(const uint16_t *cols, const int32_t *scale, int32_t rows, int32_t x0, int32_t w)
 {
     static const char *const NAMES[4] = {"WANDER", "WALK", "CHAOS", "TIDE"};
-    int32_t v[4], k;
-    uint32_t n = 0;
-    v[0] = 0;
-    for (k = 0; k < (int32_t)NV; k++) if (voices[k].active) { v[0] += voices[k].wander; n++; }   /* the voices' mean */
-    v[0] = n ? v[0] / (int32_t)n : 0;
-    v[1] = mv.src[0]; v[2] = mv.src[2]; v[3] = mv.src[5];
-    cv_begin(240, 28, C_PANEL);
-    for (k = 0; k < 4; k++) {
-        int32_t x = k * 60, w = (v[k] * 27) >> 15;
-        if (page != PG_SRC) cv_text(x + 30 - (text_w(&FONT_S, NAMES[k]) >> 1), 0, &FONT_S, NAMES[k], C_LEG);   /* (under its knob on SOURCES) */
-        cv_rect(x + 2, 16, 56, 9, C_SLOT);
-        cv_rect(x + 30, 17, 1, 7, C_RULE);
-        if (w > 0) cv_rect(x + 30, 17, w, 7, k & 1 ? C_ACC2 : C_ACC); else if (w < 0) cv_rect(x + 30 + w, 17, -w, 7, k & 1 ? C_ACC2 : C_ACC);
+    int32_t k, i;
+    for (k = 0; k < rows; k++) {
+        int32_t yc = 14 + k * 28, py = yc;
+        cv_hline(x0, x0 + w, yc, C_RULE);
+        cv_text(0, yc - 8, &FONT_S, NAMES[k], C_LEG);
+        for (i = 0; i < w; i++) {
+            int32_t y = yc - (hist[k][(hist_n + 120u - (uint32_t)w + (uint32_t)i) % 120u] * scale[k] * 13 >> 13);
+            cv_line(x0 + i, i ? py : y, x0 + i + 1, y, cols[k]); py = y;
+        }
     }
-    cv_blit(0, 166);
 }
-static void draw_monitor(uint32_t sounding)
+static void draw_move(void)
 {
-    uint32_t v;
-    int32_t w;
-    if (page >= PG_MOVE && page <= PG_DST) { draw_sources(); return; }
-    cv_begin(240, 28, C_PANEL);
-    cv_text(0, 0, &FONT_S, "OUT", C_LEG);
-    cv_rect(30, 3, 122, 9, C_SLOT);
-    w = meter_hold * 120 / 32767;
-    cv_rect(31, 4, w > 120 ? 120 : w, 7, w > 100 ? CAP[CY] : CAP[CG]);
-    cv_text(0, 15, &FONT_S, "AT", C_LEG);
-    cv_rect(30, 18, 122, 9, C_SLOT);
-    cv_rect(31, 19, (int32_t)press * 120 / 127, 7, CAP[CW]);
-    for (v = 0; v < NV; v++) cv_rect(164 + (int32_t)v * 9, 8, 6, 14, sounding >> v & 1u ? C_ACC : C_SLOT);
-    cv_blit(0, 166);
+    uint16_t cols[4];
+    int32_t scale[4], k, i, py = 112;
+    for (k = 0; k < 4; k++) { cols[k] = dim(KC[0], 120u + (uint32_t)patch.move); scale[k] = patch.move; }
+    draw_traces(cols, scale, 4, 64, 110);
+    for (i = 0; i < 50; i++) {                                /* DRIFT: one partial's walk */
+        int32_t y = 112 - (hist[4][(hist_n + 70u + (uint32_t)i) % 120u] * patch.drift * 9 >> 13);
+        cv_line(180 + i, i ? py : y, 181 + i, y, KC[2]); py = y;
+    }
+    cv_text(180, 86, &FONT_S, "DRIFT", C_LEG);
+    {   /* WIDTH: L and R spreading from the centre */
+        int32_t s = 2 + patch.width * 48 / 127;
+        cv_hline(60, 160, 118, C_RULE);
+        cv_dot(110 - s, 118, 2, KC[3]); cv_dot(110 + s, 118, 2, KC[3]);
+        cv_text(40, 110, &FONT_S, "L", C_LEG); cv_text(166, 110, &FONT_S, "R", C_LEG);
+    }
+    cv_text(180, 2, &FONT_S, "RATE", C_LEG);
+    cv_rect(180, 20, 50, 5, C_SLOT); cv_rect(181, 21, patch.rate * 48 / 127, 3, KC[1]);
 }
+/* SOURCES and TARGETS: the matrix. Rows the sources, live; columns the targets; a dot where a source drives a
+ * target, as big as the amount in, the depth out */
+static void draw_matrix(void)
+{
+    static const char *const SRC[4] = {"WANDER", "WALK", "CHAOS", "TIDE"}, *const DST[4] = {"TILT", "COLOUR", "PITCH", "SPACE"};
+    static const uint8_t SI[4] = {7, 0, 2, 5};                /* the pattern's column a source (wander: a voice's own) */
+    const uint8_t *amt = &patch.src_wander, *dep = &patch.to_tilt;
+    int32_t r, c, x0 = 76, y0 = 20, cw = 40, rh = 26;
+    for (c = 0; c < 4; c++) cv_text(x0 + c * cw + cw / 2 - (text_w(&FONT_S, DST[c]) >> 1), 0, &FONT_S, DST[c], page == PG_DST ? KC[c] : C_LEG);
+    for (r = 0; r < 4; r++) {
+        int32_t live = r == 0 ? hist[0][(hist_n + 119u) % 120u] : mv.src[SI[r]] >> 7, y = y0 + r * rh + rh / 2;
+        cv_text(0, y - 8, &FONT_S, SRC[r], page == PG_SRC ? KC[r] : C_LEG);
+        cv_hline(x0 - 6, x0 + 4 * cw, y, C_RULE);
+        for (c = 0; c < 4; c++) {
+            int32_t on = SI[r] == 7u ? (c == 0 || c == 1 || c == 2) : MV_PATTERN[c][SI[r]] != 0;   /* wander goes to tilt, colour, pitch in the voice */
+            int32_t sz = on ? (int32_t)amt[r] * dep[c] / (127 * 127 / 7) : 0, x = x0 + c * cw + cw / 2;
+            if (!on) { cv_pset(x, y, C_RULE); continue; }
+            cv_dot(x, y, sz + 1, dim(page == PG_SRC ? KC[r] : KC[c], 140u + (uint32_t)sz * 16u));
+        }
+        cv_dot(x0 - 6, y - (live * 10 >> 7), 2, page == PG_SRC ? KC[r] : C_SILK);   /* the source now, as a float on its rail */
+    }
+}
+
+/* SPACE: the tail, falling as SIZE says; DAMP the highs under it, falling faster; SHIMMER the sparks climbing */
+static void draw_space(void)
+{
+    int32_t x, len = 16 + patch.rv_size * 200 / 127, len2 = len - len * patch.rv_damp / 180, base = 108, h0 = 20 + patch.rv_mix * 60 / 127;
+    uint32_t i, n = (uint32_t)patch.rv_shim * 24u / 127u;
+    cv_hline(4, 236, base + 1, C_RULE);
+    for (x = 0; x < 224; x++) {
+        int32_t h = decay_px(h0, (uint32_t)(x * 6 * 1024 / len)), h2 = decay_px(h0, (uint32_t)(x * 6 * 1024 / (len2 < 4 ? 4 : len2)));
+        cv_vline(8 + x, base - h, base, dim(KC[1], 70u + (uint32_t)patch.rv_mix));
+        cv_vline(8 + x, base - h2, base, dim(KC[2], 110u + (uint32_t)patch.rv_mix));
+        if (h) cv_pset(8 + x, base - h - 1, KC[0]);
+    }
+    for (i = 0; i < n; i++) {                                 /* the shimmer: sparks climbing out of the tail */
+        uint32_t r = noise32(&ui_rng);
+        int32_t x1 = 8 + (int32_t)((r >> 8) % 200u), y1 = base - decay_px(h0, (uint32_t)((x1 - 8) * 6 * 1024 / len)) - 4 - (int32_t)((r >> 20) % 30u);
+        cv_pset(x1, y1, dim(KC[3], 120u + (r & 127u)));
+    }
+}
+
+/* DELAY: the repeats, spaced by TIME, dying by FEEDBACK, as loud as MIX; TAPE leans them over */
+static void draw_delay(void)
+{
+    int32_t sp = 14 + patch.dly_time * 44 / 127, h = 80, x = 12, base = 108, i, tape = patch.dly_tape;
+    uint32_t fb = (uint32_t)patch.dly_fb * 250u;
+    cv_hline(4, 236, base + 1, C_RULE);
+    cv_rect(x, base - h, 6, h, C_SILK);                      /* the note itself */
+    h = patch.dly_mix ? h * patch.dly_mix / 127 : 60;                                        /* (off: ghosts, so the page still shows the time and feedback) */
+    for (i = 1; i < 16 && x + sp * i < 232; i++) {
+        int32_t xi = x + sp * i, lean = tape ? ((sine_i((uint32_t)i * 0x30000000u) * tape) >> 15) / 24 : 0, hi;
+        h = (int32_t)(((uint32_t)h * fb) >> 15);
+        if (h < 2) break;
+        hi = patch.dly_ping && (i & 1) ? h * 3 / 4 : h;
+        cv_rect(xi + lean, base - hi, 6, hi, dim(KC[2], patch.dly_mix ? 120u + (uint32_t)hi * 2u : 50u));
+        cv_rect(xi + lean, base - hi, 6, 1, KC[1]);
+        if (i == 1) { cv_hline(x + 6, xi + lean, base - 6, KC[0]); cv_vline(xi + lean, base - 8, base - 4, KC[0]); }
+    }
+    if (tape) { int32_t w = 10 + tape * 60 / 127; cv_hline(230 - w, 230, 10, KC[3]); cv_text(230 - w - text_w(&FONT_S, "TAPE") - 4, 2, &FONT_S, "TAPE", C_LEG); }
+}
+
+/* FREEZE: the delay line, its write head, and the grains on it, live when frozen; SPRAY the reach, SHIFT the lift */
+static void draw_freeze(void)
+{
+    int32_t y = 70, head = (int32_t)(dly_w * 240u / DLY_LEN), reach = (int32_t)(frz_spray * 240u / DLY_LEN), lift = ((int32_t)patch.frz_shift - 12) * 2, g, i;
+    uint32_t spray = (882u * exp2_q15((uint32_t)patch.frz_spray * 46u)) >> 15, len = (441u * exp2_q15((uint32_t)patch.frz_grain * 45u)) >> 15;
+    reach = (int32_t)(spray * 240u / DLY_LEN);
+    cv_rect(0, y - 2, 240, 5, dim(KC[0], 60u + (uint32_t)patch.freeze));
+    cv_vline(head, y - 8, y + 8, KC[0]);
+    for (i = head - reach; i < head; i += 4) cv_pset(((i % 240) + 240) % 240, y + 10, KC[2]);   /* SPRAY: where grains may come from */
+    for (g = 0; g < (int32_t)NGRAIN; g++) {
+        int32_t x, w, h;
+        if (frz_now) {                                        /* the real grains */
+            x = (int32_t)((grain[g].pos >> 16) * 240u / DLY_LEN); w = (int32_t)((0xFFFFFFFFu / grain[g].winc) * 240u / DLY_LEN);
+            h = (32767 - SINE_RAM[((grain[g].wph >> 22) + 256u) & 1023u]) >> 1;
+        } else {                                              /* a picture of them */
+            uint32_t s = 0x7777u + (uint32_t)g * 977u; x = ((head - (int32_t)((noise32(&s) >> 8) % (uint32_t)(reach + 1))) % 240 + 240) % 240;
+            w = (int32_t)(len * 240u / DLY_LEN); h = 16000 + (int32_t)(noise32(&s) >> 18);
+        }
+        if (w < 3) w = 3;
+        for (i = 0; i <= w; i++) {                            /* a Hann hump, lifted by SHIFT */
+            int32_t a = (32767 - SINE_RAM[((uint32_t)(i * 1024 / (w + 1)) + 256u) & 1023u]) >> 1, hh = (a * h >> 15) * 36 >> 15;
+            int32_t xx = ((x + i) % 240 + 240) % 240;
+            cv_vline(xx, y - 3 - lift - hh, y - 3 - lift, dim(KC[1], 100u + (uint32_t)(h >> 7)));
+        }
+    }
+    if (lift) cv_text(200, lift > 0 ? 100 : 6, &FONT_S, lift > 0 ? "UP" : "DOWN", KC[3]);
+}
+
+/* MIDI: what it listens to */
+static void draw_midi(void)
+{
+    char s[12];
+    cv_text(8, 4, &FONT_S, "CHANNEL", C_LEG);
+    if (set.midi_chan) { s[0] = (char)('0' + set.midi_chan / 10u); s[1] = (char)('0' + set.midi_chan % 10u); s[2] = 0; cv_text(100, 4, &FONT_S, set.midi_chan < 10u ? s + 1 : s, KC[0]); }
+    else cv_text(100, 4, &FONT_S, "OMNI", KC[0]);
+    cv_text(8, 26, &FONT_S, "SWELL BY", C_LEG);
+    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_MIDI].p[2], set.expr, s + 3); cv_text(100, 26, &FONT_S, s, KC[1]); }
+    else cv_text(100, 26, &FONT_S, "AFTERTOUCH", KC[1]);
+    cv_text(8, 48, &FONT_S, "MACROS", C_LEG); cv_text(100, 48, &FONT_S, "CC 80..87", C_SILK);
+    cv_text(8, 70, &FONT_S, "CLOCK", C_LEG); cv_text(100, 70, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
+    cv_text(8, 92, &FONT_S, "IN", C_LEG); cv_dot(106, 100, 4, fm1_ms - last_midi_ms < 200u ? KC[0] : C_SLOT);
+}
+
 static uint32_t load_now, wload_now;
 static void draw_status(int32_t oct, uint32_t nvoices)
 {
@@ -644,6 +945,14 @@ static void draw_status(int32_t oct, uint32_t nvoices)
     }
     if (set.latch) { t[0] = 'L'; t[1] = 'A'; t[2] = 'T'; }
     text_box(0, 224, 240, t, C_LEG, 1);
+}
+static void draw_page(void)
+{
+    uint32_t k;
+    lcd_fill(0, 0, 240, 240, C_PANEL);
+    draw_header();
+    draw_graphic();
+    for (k = 0; k < 4u; k++) draw_knob(k);
 }
 
 /* ---- MIDI clock: the delay's SYNC follows it */
@@ -703,7 +1012,7 @@ static void app_loop(void)
     if (b & (1u << BTN_OCT_DOWN) && set.oct_plus2 > 0u) { set.oct_plus2--; changed(); }
     if (b & (1u << BTN_OCT_UP) && set.oct_plus2 < 4u) { set.oct_plus2++; changed(); }
     if (b & (1u << BTN_HOME)) page = PG_HOME;
-    if (b & (1u << BTN_EDIT)) page = page >= PG_PAD && page < PG_AIR ? page + 1u : PG_PAD;
+    if (b & (1u << BTN_EDIT)) page = page >= PG_TONE && page < PG_AIR ? page + 1u : PG_TONE;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_FREEZE ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
@@ -723,7 +1032,7 @@ static void app_loop(void)
             if (!d->name) continue;
             p = param_ptr(d);
             v = clamp((int32_t)*p + n * (d->max >= 100u ? 2 : 1), 0, d->max);
-            if (v != *p) { *p = (uint8_t)v; set.patch = patch; changed(); draw_param(k); }
+            if (v != *p) { *p = (uint8_t)v; set.patch = patch; changed(); draw_knob(k); draw_graphic(); }
         }
     while (midi_get(&st, &d1, &d2)) {
         uint32_t m = st & 0xF0u, chn = (st & 15u) + 1u;
@@ -744,7 +1053,7 @@ static void app_loop(void)
             else if (d1 == 7u) { patch.volume = d2; set.patch = patch; changed(); }
         }
     }
-    if (midi_redraw) { midi_redraw = 0; if (page == PG_HOME) draw_home(); else for (k = 0; k < 4u; k++) draw_param(k); }
+    if (midi_redraw) { midi_redraw = 0; for (k = 0; k < 4u; k++) draw_knob(k); if (!PAGES[page].live) draw_graphic(); }
     {   /* the tide's turn: 64 bars at RATE 0 to 4 at 127 (log), of the MIDI clock's tempo, or of 120 bpm without one */
         uint32_t f = (uint32_t)patch.rate * 8u, beat = fm1_ms - clk_last < 2000u ? beat_ms : 500u;
         uint32_t bars_q15 = (64u * EXP2N_Q15[f & 255u]) >> (f >> 8);        /* 64 x 2^(-rate / 32), Q15 */
@@ -759,7 +1068,7 @@ static void app_loop(void)
         if (sounding >> k & 1u) { nv++; if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
-    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_PAD && page <= PG_AIR);
+    fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_FREEZE); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch);
     {
@@ -770,11 +1079,7 @@ static void app_loop(void)
         load_now = (uint32_t)(load_acc >> 6); wload_now = (uint32_t)(wload_acc >> 6);
     }
     if (page != page_drawn) { page_drawn = page; draw_page(); status_drawn = ~0u; }
-    {
-        int32_t pk = out_peak;
-        if (pk > meter_hold) meter_hold = pk;
-        if (fm1_ms - strip_ms >= 50u) { strip_ms = fm1_ms; draw_monitor(sounding); meter_hold -= meter_hold >> 3; }
-    }
+    if (fm1_ms - strip_ms >= 100u) { strip_ms = fm1_ms; hist_tick(); if (PAGES[page].live) draw_graphic(); }   /* the live graphics, ten a second */
     k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14;
     if (k != status_drawn) { status_drawn = k; draw_status(oct(), nv); }
     if (out_peak > 512) loud_ms = fm1_ms;              /* (quiet is what matters: a pad's tail can run for half a minute) */

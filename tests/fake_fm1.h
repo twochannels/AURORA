@@ -135,7 +135,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
     fake_draws++;
 }
 #ifndef CV_MAX
-#define CV_MAX (240u * 64u)
+#define CV_MAX (240u * 124u)
 #endif
 #include "gfx.c"
 
