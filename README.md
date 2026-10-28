@@ -25,7 +25,7 @@ sound module for a dawless rig, built for playing rather than sequencing.
   line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with TILT, SPACE,
   AIR and FREEZE under the knobs for playing.
 - **Presets**: twelve, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB and ORGAN to the struck
-  (GLASS, MALLET, PLUCK): the ALGORITHM encoder on HOME, or a program change. HOME shows the name, starred once edited.
+  (GLASS, MALLET, PLUCK): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   channel pressure or an expression CC swells the pad; PLAY latches a drone.
 

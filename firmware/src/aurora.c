@@ -491,8 +491,7 @@ static const char *const N_ONOFF[2] = {"OFF", "ON"};
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
     {"MOVE", offsetof(patch_t, move)}, {"SPACE", offsetof(patch_t, rv_mix)}, {"AIR", offsetof(patch_t, air)}, {"TILT", offsetof(patch_t, tilt)},
     {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, freeze)}, {"BLOOM", offsetof(patch_t, bloom)}};
-/* ---- the presets: each a name and what it changes from the default sound (the ALGORITHM encoder on HOME, or a
- * program change). From the slow and vast to the short and struck. */
+/* ---- the presets: each a name and what it changes from the default sound (the PRESETS encoder, or a program change). From the slow and vast to the short and struck. */
 typedef struct { uint8_t off, v; } pdelta_t;
 #define D(f, v) {(uint8_t)offsetof(patch_t, f), v}
 #define END {255, 0}
@@ -1110,10 +1109,11 @@ static void app_loop(void)
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
         sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k);
     }
-    if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page == PG_HOME) {   /* HOME: the presets */
+    if ((n = fm1_enc_take(ENC_PRESETS)) != 0) {                         /* PRESETS: the presets, on any page */
         set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NPRESET * 4) % (int32_t)NPRESET);
         preset_build(set.preset, &patch); set.patch = patch; changed(); page_drawn = ~0u;
-    } else if (n != 0) {                                                 /* the group's pages, either way */
+    }
+    if ((n = fm1_enc_take(ENC_ALGORITHM)) != 0 && page != PG_HOME) {   /* ALGORITHM: the group's pages, either way */
         uint32_t first = PAGE_GROUP[page][0], cnt = PAGE_GROUP[page][1];
         page = first + (uint32_t)(((int32_t)(page - first) + n + (int32_t)cnt * 4) % (int32_t)cnt);
     }
