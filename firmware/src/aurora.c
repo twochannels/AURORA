@@ -127,14 +127,16 @@ static struct {
     uint32_t rng;
     int32_t src[7];                                /* walk 0, walk 1, chaos x, y, z, tide sin, tide cos: the view's */
 } mv = {{0, 0}, {0, 0}, 256, 256, 5120, 0, 0x2545F491u, {0}};
-static int32_t mv_tilt16, mv_spread, mv_pitch256, mv_space;   /* the destinations' offsets this block */
+static int32_t mv_tilt16, mv_spread, mv_pitch256, mv_space, mv_gain;   /* the destinations' offsets this block */
 static volatile uint32_t tide_period_ms = 128000;  /* the tide's turn, from RATE and the clock (the main loop's) */
 static volatile uint32_t tide_reset;               /* MIDI start: the tide starts over */
 /* which source goes where, and which way: TILT, COLOUR, PITCH, SPACE x walk0 walk1 cx cy cz sin cos */
 static const int8_t MV_PATTERN[4][7] = {{1, 0, 1, 0, 0, 1, 0}, {0, -1, 0, 1, 0, 0, -1}, {-1, 0, 0, 0, 1, 0, 1}, {0, 1, -1, 0, 0, 1, 0}};
 static void movement_block(void)
 {
-    int32_t move = patch.move * 258, amount[7], depth[4], j, i, dt;
+    int32_t move, amount[7], depth[4], j, i, dt;
+    mv_gain = mulq15((int32_t)patch.move * 258, (int32_t)patch.move * 258) * 2;   /* MOVE squared, to x2: 64 is as it was, the top half overdrives (the sources clip at the extremes) */
+    move = mv_gain;
     uint32_t k, e = (uint32_t)patch.rate * 61u;    /* 2^(rate / 16.8): x200 over the knob */
     mv_fb = (int32_t)((((e & 1023u) ? (uint32_t)EXP2N_Q15[(1024u - (e & 1023u)) >> 2] : 16384u) << (3u + (e >> 10))) >> 15);   /* 4 .. 760: f / 172 in Q16 */
     for (k = 0; k < 2u; k++) random_lfo(&mv.walk[k], &mv.wtarget[k], &mv.rng);
@@ -156,10 +158,10 @@ static void movement_block(void)
     for (j = 0; j < 4; j++) {
         int32_t g = 0, m;
         for (i = 0; i < 7; i++) if (MV_PATTERN[j][i]) g += MV_PATTERN[j][i] * mulq15(mv.src[i], amount[i]);
-        m = mulq15(mulq15(clamp(g, -32767, 32767), move), depth[j]);
-        if (j == 0) mv_tilt16 = (m * 1200) >> 15;                           /* +-75 of TILT */
+        m = mulq15(clamp(mulq15(clamp(g, -32767, 32767), move), -32767, 32767), depth[j]);
+        if (j == 0) mv_tilt16 = (m * 2047) >> 15;                           /* the whole of TILT */
         else if (j == 1) mv_spread = (m * 64) >> 15;                         /* +-64 of SPREAD and BRIGHT */
-        else if (j == 2) mv_pitch256 = (m * 96) >> 15;                       /* +-37 cents */
+        else if (j == 2) mv_pitch256 = (m * 512) >> 15;                      /* +-2 semitones */
         else mv_space = m;                                                   /* of SPACE: see below */
     }
     {   /* SPACE moves by up to the distance to the knob's nearer end: 0 stays off and 127 stays full, 64 swings +-64 */
@@ -224,11 +226,11 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         }
     }
     {                                              /* WANDER: this voice's own, into the same four destinations */
-        int32_t wv = mulq15(mulq15(w->wander, patch.src_wander * 258), patch.move * 258), c;
-        tilt16 += (mulq15(wv, patch.to_tilt * 258) * 1200) >> 15;
+        int32_t wv = clamp(mulq15(mulq15(w->wander, patch.src_wander * 258), mv_gain), -32767, 32767), c;
+        tilt16 += (mulq15(wv, patch.to_tilt * 258) * 2047) >> 15;
         c = (mulq15(wv, patch.to_colour * 258) * 64) >> 15;
         spread -= c; bright -= c;                                                /* (against the global colour) */
-        pitch256 += (mulq15(wv, patch.to_pitch * 258) * 96) >> 15;
+        pitch256 += (mulq15(wv, patch.to_pitch * 258) * 512) >> 15;
     }
     tilt16 = clamp(tilt16, 0, 2047); spread = clamp(spread, -64, 63); bright = clamp(bright, 0, 127);
     env_q15 = w->env >> 9;
