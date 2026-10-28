@@ -86,7 +86,12 @@ footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px
 .panel span { color: var(--muted); font-size: 15px; }
 
 /* the demo, beside the intro: a big play button over the poster until it plays */
-.intro { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 1.6rem; align-items: center; margin: 1.2rem 0 .6rem; }
+.intro { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 1.8rem; align-items: center; margin: 1.2rem 0 .6rem; }
+.about .lead { margin: 0 0 .8rem; }
+.layers { list-style: none; margin: 0; padding: 0; }
+.layers li { padding: .38rem 0; border-top: 1px solid var(--rule); font-size: 15px; color: var(--muted); }
+.layers li:first-child { border-top: 0; }
+.layers .kn { color: var(--ink); margin-right: .4em; }
 @media (max-width: 640px) { .intro { grid-template-columns: 1fr; } }
 .player { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--rule); background: var(--panel); }
 .demo { display: block; width: 100%; height: auto; }
