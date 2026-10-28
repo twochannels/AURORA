@@ -10,6 +10,7 @@ cp web/site.css build/site/
 cp web/site/fm1ota.js build/site/
 mkdir -p build/site/firmware && cp web/site/firmware/aurora.fwsc build/site/firmware/
 [ -d web/site/img ] && cp -R web/site/img build/site/
+[ -d web/site/demo ] && cp -R web/site/demo build/site/
 [ -f tools/gen_docs.py ] && python3 tools/gen_docs.py > build/site/reference.html || true   # (the reference comes with the manual)
 web/emu/build.sh
 cp build/emu/index.html build/emu/worklet.js build/emu/aurora.wasm build/site/emu/

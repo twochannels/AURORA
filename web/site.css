@@ -82,3 +82,6 @@ footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px
 .panel div { display: flex; gap: .8rem; align-items: baseline; padding: .35rem 0; border-bottom: 1px solid var(--rule); }
 .panel b { font: 600 .9rem "Barlow Semi Condensed", sans-serif; letter-spacing: .1em; color: var(--ink); background: var(--card); border: 1px solid var(--rule); border-radius: 6px; padding: .1em .5em; white-space: nowrap; min-width: 6.5em; text-align: center; }
 .panel span { color: var(--muted); font-size: 15px; }
+
+/* the demo */
+.demo { display: block; width: min(100%, 480px); height: auto; margin: 1rem 0 1.4rem; border-radius: 12px; border: 1px solid var(--rule); background: var(--panel); }
