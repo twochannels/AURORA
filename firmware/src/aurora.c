@@ -733,13 +733,15 @@ static void draw_aurora(void)
     uint16_t col[3][8];
     uint32_t c, x, y, kx, kx2, inc, lv = sound_level();
     int32_t th[3], step[3], off[3], ints, frz = (int32_t)freeze_now * 2, m = patch.move, v;
+    int32_t pr = press, sh = bend_knob >> 2;      /* pressure lifts the sky and lights it; the bend slides it sideways, 64 px a semitone */
     au_glow += ((int32_t)lv - au_glow) >> 2;
     ints = 150 + ((au_glow * 106) >> 15);                                                  /* the light: 150 at rest, full while sounding (the FM-1's panel is dim: the mids must sit well above its black) */
     ints = ints - ((ints * patch.rv_mix) >> 9);                                            /* the haze dims it a little */
+    ints += pr * 80 / 127; if (ints > 255) ints = 255;
     inc = (10000000u + (uint32_t)patch.rate * 1600000u) / 127u * (uint32_t)(127 - freeze_now);   /* the waves' drift: 40 s a cycle to 2 s, stopped by the ice */
     au_ph[0] += inc; au_ph[1] -= inc + (inc >> 1); au_ph[2] += inc >> 1;
     kx = 0xFFFFFFFFu / (120u + (uint32_t)patch.width * 240u / 127u); kx2 = kx * 2u + (kx >> 1);  /* the wavelength: 120 px narrow, 360 wide */
-    off[0] = (mv.src[0] * (20 + m * 40 / 127)) >> 15; off[1] = (mv.src[2] * (16 + m * 32 / 127)) >> 15; off[2] = (mv.src[5] * (12 + m * 24 / 127)) >> 15;
+    off[0] = ((mv.src[0] * (20 + m * 40 / 127)) >> 15) - pr * 22 / 127; off[1] = ((mv.src[2] * (16 + m * 32 / 127)) >> 15) - pr * 16 / 127; off[2] = ((mv.src[5] * (12 + m * 24 / 127)) >> 15) - pr * 10 / 127;
     th[0] = 30 + patch.bright * 24 / 127 + patch.rv_mix * 16 / 127; th[1] = 24 + patch.rv_mix * 12 / 127; th[2] = 18 + patch.rv_mix * 8 / 127;
     for (c = 0; c < 3u; c++) {
         uint16_t lo, hi;
@@ -751,16 +753,17 @@ static void draw_aurora(void)
         for (i = 0; i < 8u; i++) col[c][i] = blend(blend(lo, hi, i * 36u), RGB(190, 220, 255), (uint32_t)frz);
     }
     for (x = 0; x < 240u; x++) {
-        int32_t r = 128 + ((sine_i(x * (kx * 3u) + au_ph[1] * 2u) * (100 + patch.air * 100 / 127)) >> 15);
+        uint32_t xs = (uint32_t)((int32_t)x + sh);                                           /* the sky, slid by the bend */
+        int32_t r = 128 + ((sine_i(xs * (kx * 3u) + au_ph[1] * 2u) * (100 + patch.air * 100 / 127 + pr * 60 / 127)) >> 15);
         for (c = 0; c < 3u; c++) {
-            int32_t w = (AMP1[c] * sine_i(x * kx + au_ph[0] + c * 0x30000000u) + AMP2[c] * sine_i(x * kx2 - au_ph[1] + c * 0x50000000u)) >> 15;
+            int32_t w = (AMP1[c] * sine_i(xs * kx + au_ph[0] + c * 0x30000000u) + AMP2[c] * sine_i(xs * kx2 - au_ph[1] + c * 0x50000000u)) >> 15;
             au_yc[c][x] = (int16_t)(BASE[c] + off[c] + w);
         }
         au_ray[x] = (uint8_t)(r < 0 ? 0 : r > 255 ? 255 : r);
     }
     for (v = 0; v < (int32_t)NV; v++)                   /* a ray a note, at its pitch */
         if (voices[v].active) {
-            int32_t xn = ((int32_t)voices[v].note - 36) * 4, e = voices[v].env >> 9, d;
+            int32_t xn = ((int32_t)voices[v].note - 36) * 4 + (bend_knob >> 6), e = voices[v].env >> 9, d;   /* (the ray at the bent pitch) */
             for (d = -5; d <= 5; d++) {
                 int32_t xx = xn + d, b;
                 if (xx < 0 || xx > 239) continue;
@@ -786,8 +789,6 @@ static void draw_aurora(void)
             if (hit) row[x] = swap16(p);
         }
     }
-    if (press) cv_rect(0, GH - 2, (int32_t)press * 240 / 127, 2, KC[1]);                      /* the pressure, along the bottom */
-    if (bend_knob) { cv_vline(120, GH - 8, GH - 3, C_RULE); cv_rect(120 + bend_knob / 8 - 1, GH - 8, 3, 5, KC[3]); }   /* the bend, off centre */
     {   /* the ground: a ridge along the bottom the curtains dip behind, the dials standing on it below */
         uint32_t ky = 0x40000000u / 240u;
         for (x = 0; x < 240u; x++) {
@@ -798,9 +799,9 @@ static void draw_aurora(void)
     }
     for (v = 0; v < (int32_t)NV; v++)                   /* the chord: a soft dot at the foot of each note's ray, pulsing with its envelope */
         if (voices[v].active) {
-            int32_t xn = clamp(((int32_t)voices[v].note - 36) * 4, 4, 235), e = voices[v].env >> 9, yn = au_yc[0][xn] + 2;
+            int32_t xn = clamp(((int32_t)voices[v].note - 36) * 4 + (bend_knob >> 6), 4, 235), e = voices[v].env >> 9, yn = au_yc[0][xn] + 2;
             if (yn > 98) yn = 98;
-            cv_dot(xn, yn, 3, dim(RGB(220, 255, 240), 60u + (uint32_t)(e * 196 >> 15)));
+            cv_dot(xn, yn, 3 + pr / 50, dim(RGB(220, 255, 240), 60u + (uint32_t)(e * 196 >> 15)));
             cv_dot(xn, yn, 1, dim(RGB(255, 255, 255), 120u + (uint32_t)(e * 135 >> 15)));
         }
     {   /* the name, large, top left on the sky: the preset's, starred once the sound has changed; scene B's while there */
