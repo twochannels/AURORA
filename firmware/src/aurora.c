@@ -62,7 +62,7 @@ static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,rele
     "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
     "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume";
 typedef char patch_fields_count_check[sizeof(patch_t) == 48u ? 1 : -1];   /* a field added: add its name above, and bump this */
-static const patch_t INIT_PATCH = {
+static const patch_t BASE_PATCH = {      /* the presets build on this; the boot sound is preset 0, AURORA, Ben's */
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
     .air_tone = 60, .air_tex = 30, .air_breath = 70,
@@ -506,7 +506,7 @@ typedef struct { uint8_t off, v; } pdelta_t;
 #define END {255, 0}
 typedef struct { const char *name; pdelta_t d[40]; } preset_t;
 static const preset_t PRESETS[] = {
-    {"AURORA", {END}},
+    {"AURORA", {D(tilt, 63), D(spread, 34), D(bright, 46), D(attack, 30), D(sustain, 105), D(detune, 69), D(sw_level, 58), D(sw_spread, 58), D(sw_cut, 48), D(sw_res, 66), D(air_tone, 96), D(air_tex, 52), D(air_breath, 47), D(move, 20), D(rate, 69), D(drift, 58), D(width, 96), D(air, 36), D(src_walk, 62), D(to_pitch, 83), D(to_space, 116), D(dly_time, 50), D(dly_fb, 88), D(dly_mix, 99), D(dly_tape, 92), D(rv_mix, 100), D(rv_damp, 30), D(rv_shim, 80), D(freeze, 62), D(frz_grain, 50), D(frz_spray, 40), END}},
     {"DEEP", {D(attack, 127), D(decay, 0), D(sustain, 127), D(release, 127), D(tilt, 85), D(bright, 70), D(detune, 50), D(bloom, 127), D(drift, 70), D(move, 127), D(rate, 30), D(width, 127),
               D(src_wander, 100), D(src_walk, 80), D(src_chaos, 90), D(src_tide, 100), D(to_tilt, 100), D(to_colour, 70), D(to_pitch, 40), D(to_space, 80),
               D(air, 40), D(air_tone, 40), D(air_breath, 110), D(sw_level, 50), D(sw_cut, 30), D(sw_res, 25), D(rv_mix, 100), D(rv_size, 127), D(rv_shim, 35), D(velo, 10), END}},
@@ -537,7 +537,7 @@ static const preset_t PRESETS[] = {
 static void preset_build(uint32_t i, patch_t *p)
 {
     const pdelta_t *d;
-    *p = INIT_PATCH;
+    *p = BASE_PATCH;
     for (d = PRESETS[i % NPRESET].d; d->off != 255u; d++) ((uint8_t *)p)[d->off] = d->v;
 }
 static int preset_edited(void)              /* the sound differs from its preset */
@@ -1099,7 +1099,7 @@ static void app_init(void)
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
     if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NPRESET) {
         set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0;
-        set.patch = INIT_PATCH;
+        preset_build(0, &set.patch);
     }
     patch = set.patch;
     lcd_fill(0, 0, 240, 240, C_PANEL);
