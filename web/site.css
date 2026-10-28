@@ -90,13 +90,13 @@ footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px
 @media (max-width: 640px) { .intro { grid-template-columns: 1fr; } }
 .player { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--rule); background: var(--panel); }
 .demo { display: block; width: 100%; height: auto; }
-.big-play { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
-.big-play svg { width: 22%; height: auto; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, .7)); transition: transform .15s; }
-.big-play svg circle { fill: rgba(14, 16, 24, .72); stroke: var(--k1); stroke-width: 3; }
-.big-play svg path { fill: var(--k1); }
-.big-play svg .wave { fill: none; stroke: var(--k1); stroke-width: 5; stroke-linecap: round; opacity: .35; }
-.big-play svg .off { fill: none; stroke: var(--k4); stroke-width: 6; stroke-linecap: round; }
-.big-play:hover svg { transform: scale(1.06); }
-.player.sound .big-play { display: none; }
+.listen { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: .5em; padding: .55em 1.2em .55em 1em; border-radius: 999px;
+          background: rgba(14, 16, 24, .82); border: 2px solid var(--k1); color: var(--k1); cursor: pointer; font: 600 1rem "Barlow Semi Condensed", sans-serif; letter-spacing: .16em;
+          box-shadow: 0 4px 18px rgba(0, 0, 0, .6); transition: transform .15s, background .15s; }
+.listen svg { width: 1.4em; height: 1.4em; }
+.listen svg path { fill: var(--k1); }
+.listen svg .wave { fill: none; stroke: var(--k1); stroke-width: 7; stroke-linecap: round; }
+.listen:hover { transform: translateX(-50%) scale(1.05); background: rgba(14, 16, 24, .95); }
+.player.sound .listen { display: none; }
 .ctas { text-align: center; margin: 1.4rem 0 .4rem; }
 .ctas .try { font-size: 1.05rem; letter-spacing: .14em; padding: .6em 1.6em; margin: .3rem .5rem; }
