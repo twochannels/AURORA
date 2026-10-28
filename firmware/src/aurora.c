@@ -594,6 +594,7 @@ static uint8_t autopilot;                     /* (SEQ's autopilot: below) */
 #define C_LEG RGB(104, 116, 136)
 #define C_RULE RGB(60, 70, 90)
 #define C_SLOT RGB(6, 7, 12)
+#define C_GROUND RGB(5, 7, 12)                           /* the ground under the sky: HOME's dials stand on it */
 #define GY 26
 #define GH 124
 #define KY 154
@@ -624,7 +625,7 @@ static void cv_curve(const int16_t *ys, int32_t x0, int32_t n, uint16_t c)   /* 
 static void text_box(uint32_t x, uint32_t y, uint32_t w, const char *str, uint16_t c, int align)
 {
     int32_t tw = text_w(&FONT_S, str), tx = align == 1 ? ((int32_t)w - tw) / 2 : align == 2 ? (int32_t)w - tw : 0;
-    cv_begin(w, FONT_S.h, C_PANEL);
+    cv_begin(w, FONT_S.h, page == PG_HOME ? C_GROUND : C_PANEL);
     cv_text(tx, 0, &FONT_S, str, c);
     cv_blit(x, y);
 }
@@ -651,6 +652,7 @@ static void draw_header(void)
     char s[16];
     const char *title = pg->title;
     int32_t w, x0;
+    if (page == PG_HOME && !save_mode) { cv_begin(240, 24, C_PANEL); cv_blit(0, 0); return; }   /* HOME: the name is on the sky */
     if (save_mode) {                            /* SAVE: the slot being picked */
         int32_t i = 0;
         const char *n = "SAVE > ";
@@ -690,17 +692,23 @@ static void cv_arc(int32_t cx, int32_t cy, int32_t r, uint32_t from, uint32_t to
 }
 #define ARC_FROM 0x60000000u                    /* the dial's travel: from bottom-left, three quarters of a turn clockwise, to bottom-right */
 #define ARC_SWEEP 0xC0000000u
+static uint8_t knob_last[4];
+static uint32_t knob_flare[4];                 /* when each dial's value last moved: it flares for 400 ms, so you see which knob the sequencer or the autopilot is turning */
 static void draw_knob(uint32_t k)       /* a knob's cell: a dial in its colour, the value, the name */
 {
     const pdesc_t *d = &PAGES[page].p[k];
     char s[8];
-    cv_begin(60, 66, C_PANEL);
+    cv_begin(60, 66, page == PG_HOME ? C_GROUND : C_PANEL);
     if (d->name) {
-        uint32_t v = *param_ptr(d), mx = d->max ? d->max : 1u, sw = ARC_SWEEP / mx * v;
+        uint32_t v = *param_ptr(d), mx = d->max ? d->max : 1u, sw = ARC_SWEEP / mx * v, age;
+        uint16_t c = KC[k];
         int32_t w;
+        if (v != knob_last[k]) { knob_last[k] = (uint8_t)v; knob_flare[k] = fm1_ms | 1u; }
+        age = fm1_ms - knob_flare[k];
+        if (knob_flare[k] && age < 400u) c = blend(KC[k], RGB(255, 255, 255), (400u - age) * 160u / 400u);
         cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + ARC_SWEEP, C_RULE);
-        if (v) cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + sw, KC[k]);
-        cv_dot(30 + ((sine_i(ARC_FROM + sw + 0x40000000u) * 15) >> 15), 19 + ((sine_i(ARC_FROM + sw) * 15) >> 15), 2, C_SILK);   /* the pointer */
+        if (v) cv_arc(30, 19, 15, ARC_FROM, ARC_FROM + sw, c);
+        cv_dot(30 + ((sine_i(ARC_FROM + sw + 0x40000000u) * 15) >> 15), 19 + ((sine_i(ARC_FROM + sw) * 15) >> 15), knob_flare[k] && age < 400u ? 3 : 2, C_SILK);   /* the pointer */
         fmt_value(d, v, s);
         w = text_w(&FONT_S, s); cv_text(30 - (w >> 1), 11, &FONT_S, s, C_SILK);
         w = text_w(&FONT_S, d->name); cv_text(30 - (w >> 1), 48, &FONT_S, d->name, C_LEG);
@@ -786,6 +794,32 @@ static void draw_aurora(void)
     }
     if (press) cv_rect(0, GH - 2, (int32_t)press * 240 / 127, 2, KC[1]);                      /* the pressure, along the bottom */
     if (bend_knob) { cv_vline(120, GH - 8, GH - 3, C_RULE); cv_rect(120 + bend_knob / 8 - 1, GH - 8, 3, 5, KC[3]); }   /* the bend, off centre */
+    {   /* the ground: a ridge along the bottom the curtains dip behind, the dials standing on it below */
+        uint32_t ky = 0x40000000u / 240u;
+        for (x = 0; x < 240u; x++) {
+            int32_t yr = 104 + ((sine_i(x * ky * 3u + 0x20000000u) * 5 + sine_i(x * ky * 7u + au_ph[2] / 64u) * 3) >> 15);
+            for (y = (uint32_t)yr; y < GH; y++) cv_px[y * 240u + x] = swap16(C_GROUND);
+            if (yr > 0) cv_px[(uint32_t)(yr - 1) * 240u + x] = swap16(blend(C_GROUND, KC[0], 40));   /* a thread of light along the edge */
+        }
+    }
+    for (v = 0; v < (int32_t)NV; v++)                   /* the chord: a soft dot at the foot of each note's ray, pulsing with its envelope */
+        if (voices[v].active) {
+            int32_t xn = clamp(((int32_t)voices[v].note - 36) * 4, 4, 235), e = voices[v].env >> 9, yn = au_yc[0][xn] + 2;
+            if (yn > 98) yn = 98;
+            cv_dot(xn, yn, 3, dim(RGB(220, 255, 240), 60u + (uint32_t)(e * 196 >> 15)));
+            cv_dot(xn, yn, 1, dim(RGB(255, 255, 255), 120u + (uint32_t)(e * 135 >> 15)));
+        }
+    {   /* the name, large, top left on the sky: the preset's, starred once the sound has changed; scene B's while there */
+        char s[16];
+        int32_t i = 0;
+        const char *n = preset_name(morph >= 16384 ? set.scene_b : set.preset);
+        if (morph >= 16384) { s[i++] = 'B'; s[i++] = ':'; s[i++] = ' '; }
+        while (*n && i < 12) s[i++] = *n++;
+        if (morph < 16384 && preset_edited()) s[i++] = '*';
+        s[i] = 0;
+        cv_text(9, 7, &FONT_L, s, C_GROUND);        /* a shadow, then the name */
+        cv_text(8, 6, &FONT_L, s, morph >= 16384 ? KC[2] : KC[0]);
+    }
     {   /* stars, and the air's sparks */
         uint32_t s = 0x1234567u, i, n = 24u + (uint32_t)patch.air * 40u / 127u;
         for (i = 0; i < n; i++) {
@@ -1117,7 +1151,9 @@ static void draw_status(int32_t oct, uint32_t nvoices)
 static void draw_page(void)
 {
     uint32_t k;
-    lcd_fill(0, 0, 240, 240, C_PANEL);
+    lcd_fill(0, 0, 240, 240, page == PG_HOME ? C_GROUND : C_PANEL);
+    if (page == PG_HOME) lcd_fill(0, 0, 240, GY + GH, C_PANEL);   /* (the ground runs from the sky's bottom row down) */
+    for (k = 0; k < 4u; k++) { const pdesc_t *d = &PAGES[page].p[k]; knob_last[k] = d->name ? *param_ptr(d) : 0u; knob_flare[k] = 0; }   /* (a page change is no flare) */
     draw_header();
     draw_graphic();
     for (k = 0; k < 4u; k++) draw_knob(k);
@@ -1310,7 +1346,7 @@ static void app_loop(void)
         } else if (morph || autopilot) live_update();
         if (autopilot) auto_tick();
         if (autopilot || moving) { for (k = 0; k < 4u; k++) draw_knob(k); draw_graphic(); }
-        else if (PAGES[page].live) draw_graphic();
+        else { if (PAGES[page].live) draw_graphic(); for (k = 0; k < 4u; k++) if (knob_flare[k] && fm1_ms - knob_flare[k] < 450u) draw_knob(k); }
     }
     k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14 | (uint32_t)autopilot << 15;
     if (k != status_drawn) { status_drawn = k; draw_status(oct(), nv); }
