@@ -531,11 +531,11 @@ static const preset_t PRESETS[] = {
     {"ORGAN", {D(attack, 4), D(decay, 0), D(sustain, 127), D(release, 8), D(tilt, 26), D(spread, 24), D(bright, 127), D(detune, 12), D(bloom, 0), D(sw_level, 0), D(move, 0), D(width, 40),
                D(rv_mix, 25), D(rv_size, 60), D(velo, 0), END}},
     {"GLASS", {D(attack, 0), D(decay, 70), D(sustain, 0), D(release, 60), D(tilt, 36), D(spread, 110), D(bright, 127), D(detune, 24), D(bloom, 0), D(swell, 30), D(sw_level, 0),
-               D(move, 30), D(rate, 40), D(width, 90), D(rv_mix, 70), D(rv_size, 100), D(rv_damp, 30), D(velo, 90), END}},
+               D(move, 30), D(rate, 40), D(width, 90), D(rv_mix, 70), D(rv_size, 100), D(rv_damp, 30), D(velo, 90), D(volume, 127), END}},
     {"MALLET", {D(attack, 0), D(decay, 45), D(sustain, 0), D(release, 30), D(tilt, 80), D(spread, 50), D(bright, 90), D(detune, 0), D(bloom, 0), D(sw_level, 25), D(sw_cut, 90), D(sw_res, 40),
-                D(move, 10), D(width, 50), D(rv_mix, 40), D(rv_size, 70), D(dly_mix, 45), D(dly_fb, 55), D(dly_time, 70), D(dly_tape, 60), D(velo, 110), END}},
+                D(move, 10), D(width, 50), D(rv_mix, 40), D(rv_size, 70), D(dly_mix, 45), D(dly_fb, 55), D(dly_time, 70), D(dly_tape, 60), D(velo, 110), D(volume, 127), END}},
     {"PLUCK", {D(attack, 0), D(decay, 25), D(sustain, 0), D(release, 15), D(tilt, 60), D(spread, 40), D(bright, 127), D(detune, 10), D(bloom, 0), D(sw_level, 70), D(sw_cut, 110), D(sw_res, 50), D(sw_spread, 30),
-               D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), END}},
+               D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), D(volume, 127), END}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 /* the user bank: sixteen slots after the twelve, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
