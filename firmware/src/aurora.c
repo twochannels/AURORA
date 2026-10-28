@@ -1115,25 +1115,23 @@ static void draw_freeze(void)
 static void draw_midi(void)
 {
     char s[12];
-    cv_text(8, 4, &FONT_S, "CHANNEL", C_LEG);
-    if (set.midi_chan) { s[0] = (char)('0' + set.midi_chan / 10u); s[1] = (char)('0' + set.midi_chan % 10u); s[2] = 0; cv_text(100, 4, &FONT_S, set.midi_chan < 10u ? s + 1 : s, KC[0]); }
-    else cv_text(100, 4, &FONT_S, "OMNI", KC[0]);
-    cv_text(8, 26, &FONT_S, "SWELL BY", C_LEG);
-    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_TOUCH].p[3], set.expr, s + 3); cv_text(100, 26, &FONT_S, s, KC[1]); }
-    else cv_text(100, 26, &FONT_S, "AFTERTOUCH", KC[1]);
-    cv_text(8, 48, &FONT_S, "MACROS", C_LEG); cv_text(100, 48, &FONT_S, "CC 80..87", C_SILK);
-    cv_text(8, 70, &FONT_S, "CLOCK", C_LEG); cv_text(100, 70, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
-    cv_text(8, 92, &FONT_S, "IN", C_LEG); cv_dot(106, 100, 4, fm1_ms - last_midi_ms < 200u ? KC[0] : C_SLOT);
-    {   /* the right column: the octave, the voices sounding, the cores' load */
+    cv_text(8, 2, &FONT_S, "CHANNEL", C_LEG);
+    if (set.midi_chan) { s[0] = (char)('0' + set.midi_chan / 10u); s[1] = (char)('0' + set.midi_chan % 10u); s[2] = 0; cv_text(100, 2, &FONT_S, set.midi_chan < 10u ? s + 1 : s, KC[0]); }
+    else cv_text(100, 2, &FONT_S, "OMNI", KC[0]);
+    cv_text(8, 23, &FONT_S, "SWELL BY", C_LEG);
+    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_TOUCH].p[3], set.expr, s + 3); cv_text(100, 23, &FONT_S, s, KC[1]); }
+    else cv_text(100, 23, &FONT_S, "AFTERTOUCH", KC[1]);
+    cv_text(8, 44, &FONT_S, "MACROS", C_LEG); cv_text(100, 44, &FONT_S, "CC 80..87", C_SILK);
+    cv_text(8, 65, &FONT_S, "CLOCK", C_LEG); cv_text(100, 65, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
+    cv_text(8, 86, &FONT_S, "IN", C_LEG); cv_dot(106, 94, 4, fm1_ms - last_midi_ms < 200u ? KC[0] : C_SLOT);
+    {   /* along the bottom: the octave, the voices sounding, the cores' load */
+        char t[32] = "OCT +0  0 VOICES  LOAD 00/00%";
         uint32_t v, n = 0, l = load_now > 99u ? 99u : load_now, w = wload_now > 99u ? 99u : wload_now;
         int32_t o = (int32_t)set.oct_plus2 - 2;
         for (v = 0; v < NV; v++) if (voices[v].active) n++;
-        s[0] = 'O'; s[1] = 'C'; s[2] = 'T'; s[3] = ' '; s[4] = o < 0 ? '-' : '+'; s[5] = (char)('0' + (o < 0 ? -o : o)); s[6] = 0;
-        cv_text(160, 4, &FONT_S, s, C_LEG);
-        s[0] = (char)('0' + n); s[1] = ' '; s[2] = 'V'; s[3] = 'O'; s[4] = 'I'; s[5] = 'C'; s[6] = 'E'; s[7] = 'S'; s[8] = 0;
-        cv_text(160, 26, &FONT_S, s, n == NV ? KC[3] : C_LEG);
-        s[0] = (char)('0' + l / 10u); s[1] = (char)('0' + l % 10u); s[2] = '/'; s[3] = (char)('0' + w / 10u); s[4] = (char)('0' + w % 10u); s[5] = '%'; s[6] = 0;
-        cv_text(160, 48, &FONT_S, s, C_LEG); cv_text(160, 70, &FONT_S, "LOAD", C_LEG);
+        t[4] = o < 0 ? '-' : '+'; t[5] = (char)('0' + (o < 0 ? -o : o)); t[8] = (char)('0' + n);
+        t[23] = (char)('0' + l / 10u); t[24] = (char)('0' + l % 10u); t[26] = (char)('0' + w / 10u); t[27] = (char)('0' + w % 10u);
+        cv_text(4, 107, &FONT_S, t, n == NV ? KC[3] : C_LEG);
     }
 }
 
