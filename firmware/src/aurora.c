@@ -22,7 +22,8 @@
  *   MIDI         notes on the MIDI page's channel; CC 80..87 are the eight macros, in the Circuit Tracks' order:
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
- *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands); SELECT is the pressure
+ *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands); REC held is FREEZE at full;
+ *                SEQ is the autopilot (nine controls wander round where they are set); SELECT is the pressure
  *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
  *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SWARM AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
@@ -76,6 +77,7 @@ static const patch_t BASE_PATCH = {      /* the presets build on this; the boot 
 static volatile uint32_t sync_dly;                 /* the delay's time from the MIDI clock, frames (the main loop's) */
 static int32_t rv_mix_now;                         /* SPACE this block, 0..127: the knob plus the movement */
 static int16_t SINE_RAM[1024];                        /* the sine table copied out of the flash: the oscillators read it 12 times a frame */
+static volatile uint8_t freeze_now;                   /* FREEZE as it applies: the knob, or 127 while REC is held */
 #include "aurora_fx.h"
 
 /* ---- the voices (the render's, but for the main loop's note, vel, gate, trig, at) */
@@ -548,6 +550,7 @@ static int preset_edited(void)              /* the sound differs from its preset
 }
 
 static uint32_t clk_last, last_midi_ms;       /* (the MIDI clock's and the last message's time: below) */
+static uint8_t autopilot;                     /* (SEQ's autopilot: below) */
 /* ---- the screen: a header, a graphic the four knobs shift (240 x 124 at y 26), the four knobs under it in their
  * colours, a status line. Every page's graphic is the thing its knobs change, each part drawn in the colour of the
  * knob that moves it: green, blue, violet, amber, left to right. HOME is the aurora: the sound, drawn. */
@@ -673,11 +676,11 @@ static void draw_aurora(void)
     static const int16_t BASE[3] = {98, 74, 54}, AMP1[3] = {14, 10, 8}, AMP2[3] = {6, 5, 4};
     uint16_t col[3][8];
     uint32_t c, x, y, kx, kx2, inc, lv = sound_level();
-    int32_t th[3], step[3], off[3], ints, frz = (int32_t)patch.freeze * 2, m = patch.move, v;
+    int32_t th[3], step[3], off[3], ints, frz = (int32_t)freeze_now * 2, m = patch.move, v;
     au_glow += ((int32_t)lv - au_glow) >> 2;
     ints = 80 + ((au_glow * 176) >> 15);                                                   /* the light: 80 at rest, full while sounding */
     ints = ints - ((ints * patch.rv_mix) >> 9);                                            /* the haze dims it a little */
-    inc = (10000000u + (uint32_t)patch.rate * 1600000u) / 127u * (uint32_t)(127 - patch.freeze);   /* the waves' drift: 40 s a cycle to 2 s, stopped by the ice */
+    inc = (10000000u + (uint32_t)patch.rate * 1600000u) / 127u * (uint32_t)(127 - freeze_now);   /* the waves' drift: 40 s a cycle to 2 s, stopped by the ice */
     au_ph[0] += inc; au_ph[1] -= inc + (inc >> 1); au_ph[2] += inc >> 1;
     kx = 0xFFFFFFFFu / (120u + (uint32_t)patch.width * 240u / 127u); kx2 = kx * 2u + (kx >> 1);  /* the wavelength: 120 px narrow, 360 wide */
     off[0] = (mv.src[0] * (20 + m * 40 / 127)) >> 15; off[1] = (mv.src[2] * (16 + m * 32 / 127)) >> 15; off[2] = (mv.src[5] * (12 + m * 24 / 127)) >> 15;
@@ -1002,7 +1005,7 @@ static void draw_freeze(void)
     int32_t y = 70, head = (int32_t)(dly_w * 240u / DLY_LEN), reach = (int32_t)(frz_spray * 240u / DLY_LEN), lift = ((int32_t)patch.frz_shift - 12) * 2, g, i;
     uint32_t spray = (882u * exp2_q15((uint32_t)patch.frz_spray * 46u)) >> 15, len = (441u * exp2_q15((uint32_t)patch.frz_grain * 45u)) >> 15;
     reach = (int32_t)(spray * 240u / DLY_LEN);
-    cv_rect(0, y - 2, 240, 5, dim(KC[0], 60u + (uint32_t)patch.freeze));
+    cv_rect(0, y - 2, 240, 5, dim(KC[0], 60u + (uint32_t)freeze_now));
     cv_vline(head, y - 8, y + 8, KC[0]);
     for (i = head - reach; i < head; i += 4) cv_pset(((i % 240) + 240) % 240, y + 10, KC[2]);   /* SPRAY: where grains may come from */
     for (g = 0; g < (int32_t)NGRAIN; g++) {
@@ -1052,6 +1055,7 @@ static void draw_status(int32_t oct, uint32_t nvoices)
         t[20] = w >= 10u ? (char)('0' + w / 10u) : ' '; t[21] = (char)('0' + w % 10u); t[22] = '%'; t[23] = 0;
     }
     if (set.latch) { t[0] = 'L'; t[1] = 'A'; t[2] = 'T'; }
+    if (autopilot) { t[11] = 'A'; t[12] = 'U'; t[13] = 'T'; t[14] = 'O'; t[15] = ' '; t[16] = ' '; if (!load_now) t[15] = 0; }
     text_box(0, 224, 240, t, C_LEG, 1);
 }
 static void draw_page(void)
@@ -1077,6 +1081,25 @@ static void clock_tick(void)
     }
 }
 
+/* ---- the autopilot (SEQ): with it on, nine of the sound's controls wander slowly round where they are set, a new
+ * aim every half minute or so, reached over ten seconds; set.patch stays the sound as set, patch is the sound as
+ * played, and the knobs on the screen show it drifting */
+#define NAUTO 9u
+static const uint8_t AUTO_OFF[NAUTO] = {offsetof(patch_t, tilt), offsetof(patch_t, bright), offsetof(patch_t, spread), offsetof(patch_t, sw_cut), offsetof(patch_t, air),
+                                        offsetof(patch_t, rv_mix), offsetof(patch_t, width), offsetof(patch_t, air_tone), offsetof(patch_t, rate)};
+static uint8_t autopilot;
+static int32_t auto_v[NAUTO], auto_aim[NAUTO];
+static uint32_t auto_rng = 0x2545F491u;
+static void auto_tick(void)                      /* every 100 ms */
+{
+    uint32_t k;
+    for (k = 0; k < NAUTO; k++) {
+        uint32_t r = noise32(&auto_rng);
+        if ((r & 255u) == 0u || auto_aim[k] == 99) auto_aim[k] = (int32_t)((r >> 16) % 57u) - 28;   /* a new aim, +-28, about every 25 s; at once when just switched on */
+        auto_v[k] += ((auto_aim[k] << 8) - auto_v[k]) >> 7;
+        ((uint8_t *)&patch)[AUTO_OFF[k]] = (uint8_t)clamp((int32_t)((uint8_t *)&set.patch)[AUTO_OFF[k]] + (auto_v[k] >> 8), 0, 127);
+    }
+}
 /* ---- the main loop */
 static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, status_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw;
 static uint8_t held[27], sustain, sus_held[128 / 8];
@@ -1125,6 +1148,11 @@ static void app_loop(void)
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_FREEZE ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
+    if (b & (1u << BTN_SEQ)) {                                           /* AUTO: the sound wanders on its own */
+        autopilot ^= 1u;
+        if (autopilot) { for (k = 0; k < NAUTO; k++) { auto_v[k] = 0; auto_aim[k] = 99; } } else patch = set.patch;   /* on: from where it is set, aims drawn at once; off: back to the sound as set */
+        page_drawn = ~0u;
+    }
     if (b & (1u << BTN_PLAY)) { set.latch ^= 1u; if (!set.latch && !sustain) release_all(); changed(); status_drawn = ~0u; }   /* LATCH: a drone with no hands */
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
         sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k);
@@ -1147,7 +1175,7 @@ static void app_loop(void)
             if (!d->name) continue;
             p = param_ptr(d);
             v = clamp((int32_t)*p + n * (d->max >= 100u ? 2 : 1), 0, d->max);
-            if (v != *p) { *p = (uint8_t)v; set.patch = patch; changed(); draw_knob(k); draw_graphic(); if (page == PG_HOME) draw_header(); }
+            if (v != *p) { *p = (uint8_t)v; if (!d->global) ((uint8_t *)&set.patch)[d->off] = (uint8_t)v; changed(); draw_knob(k); draw_graphic(); if (page == PG_HOME) draw_header(); }
         }
     while (midi_get(&st, &d1, &d2)) {
         uint32_t m = st & 0xF0u, chn = (st & 15u) + 1u;
@@ -1165,8 +1193,8 @@ static void app_loop(void)
             if (set.expr && d1 == set.expr) { press = d2; continue; }
             if (d1 == 64u) { sustain = d2 >= 64u; if (!sustain && !set.latch) release_all(); continue; }
             if (d1 == 120u || d1 == 123u) { sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k); continue; }
-            if (d1 >= 80u && d1 < 88u) { *((uint8_t *)&patch + MACRO[d1 - 80u].off) = d2; set.patch = patch; changed(); midi_redraw = 1; }
-            else if (d1 == 7u) { patch.volume = d2; set.patch = patch; changed(); }
+            if (d1 >= 80u && d1 < 88u) { *((uint8_t *)&patch + MACRO[d1 - 80u].off) = d2; *((uint8_t *)&set.patch + MACRO[d1 - 80u].off) = d2; changed(); midi_redraw = 1; }
+            else if (d1 == 7u) { patch.volume = set.patch.volume = d2; changed(); }
         }
     }
     if (midi_redraw) { midi_redraw = 0; for (k = 0; k < 4u; k++) draw_knob(k); if (!PAGES[page].live) draw_graphic(); }
@@ -1186,7 +1214,7 @@ static void app_loop(void)
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_FREEZE); fm1_led_key(BTN_GLO, page == PG_MIDI);
-    fm1_led_key(BTN_PLAY, set.latch);
+    fm1_led_key(BTN_PLAY, set.latch); fm1_led_key(BTN_REC, fm1_in.buttons >> BTN_REC & 1u); fm1_led_key(BTN_SEQ, autopilot);
     {
         static int32_t load_acc, wload_acc;
         int32_t l = (int32_t)(audio_cycles / (HALF_FRAMES * 10u * FM1_TICKS_PER_US / (FS / 1000u) + 1u));
@@ -1195,8 +1223,13 @@ static void app_loop(void)
         load_now = (uint32_t)(load_acc >> 6); wload_now = (uint32_t)(wload_acc >> 6);
     }
     if (page != page_drawn) { page_drawn = page; draw_page(); status_drawn = ~0u; }
-    if (fm1_ms - strip_ms >= 100u) { strip_ms = fm1_ms; hist_tick(); bend_knob -= bend_knob / 4; if (PAGES[page].live) draw_graphic(); }   /* the live graphics, ten a second; the bend's spring */
-    k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14;
+    freeze_now = (fm1_in.buttons >> BTN_REC & 1u) ? 127u : patch.freeze;   /* REC held: frozen for as long as it is */
+    if (fm1_ms - strip_ms >= 100u) {                                      /* ten a second: the live graphics, the bend's spring, the autopilot */
+        strip_ms = fm1_ms; hist_tick(); bend_knob -= bend_knob / 4;
+        if (autopilot) { auto_tick(); for (k = 0; k < 4u; k++) draw_knob(k); draw_graphic(); }
+        else if (PAGES[page].live) draw_graphic();
+    }
+    k = (uint32_t)(oct() + 2) | nv << 3 | (load_now / 5u) << 8 | (uint32_t)set.latch << 14 | (uint32_t)autopilot << 15;
     if (k != status_drawn) { status_drawn = k; draw_status(oct(), nv); }
     if (out_peak > 512) loud_ms = fm1_ms;              /* (quiet is what matters: a pad's tail can run for half a minute) */
     if (dirty && fm1_ms - t_change > 2000u && fm1_ms - last_midi_ms > 1000u && fm1_ms - loud_ms > 500u) {

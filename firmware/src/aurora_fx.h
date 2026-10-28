@@ -39,12 +39,12 @@ static void grain_new(uint32_t g)
 }
 static void freeze_block(void)
 {
-    int32_t was = frz_now, target = (int32_t)patch.freeze * 258;
+    int32_t was = frz_now, target = (int32_t)freeze_now * 258;
     uint32_t g;
     frz_now += (target - frz_now) >> 4;
-    if (patch.freeze >= 127u) frz_new = 0;      /* held for ever */
+    if (freeze_now >= 127u) frz_new = 0;      /* held for ever */
     else {                                      /* a hold time: the line down 40 dB in 1 s at 0 to 30 s at 126 (log), one pass 1.1 s */
-        uint32_t t_q15 = exp2_q15((uint32_t)patch.freeze * 40u);                      /* seconds, Q15 */
+        uint32_t t_q15 = exp2_q15((uint32_t)freeze_now * 40u);                      /* seconds, Q15 */
         frz_new = 32767 - (int32_t)((1u << 30) / exp2_q15(245268480u / t_q15));      /* 1 - 2^(-7.31 / T) */
     }
     if (!frz_now) return;

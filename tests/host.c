@@ -47,6 +47,7 @@ static void read_script(const char *path)
         if (!strcmp(what, "end")) { end_ms = e.t; continue; }
         if (!strcmp(what, "keys")) { sscanf(line, "%*u %*s %i", (int *)&e.keys); }
         else if (!strcmp(what, "btn")) { sscanf(line, "%*u %*s %d", &e.btn); }
+        else if (!strcmp(what, "hold")) { sscanf(line, "%*u %*s %d", &e.btn); e.btn += 100; }   /* hold ID: held until "hold -1" */
         else if (!strcmp(what, "enc")) { sscanf(line, "%*u %*s %d %d", &e.enc, &e.n); }
         else if (!strcmp(what, "midi")) { sscanf(line, "%*u %*s %i %u %u", (int *)&a, &b, &c); e.st = (uint8_t)a; e.d1 = (uint8_t)b; e.d2 = (uint8_t)c; }
         else continue;
@@ -108,6 +109,8 @@ static void platform_poll(void)                 /* one call = one millisecond */
     while (step < script_n && script[step].t <= fm1_ms) {
         const host_ev_t *e = &script[step];
         if (e->st) fake_midi_put(e->st, e->d1, e->d2);
+        else if (e->btn >= 100) fake_buttons(1u << (e->btn - 100));
+        else if (e->btn == 99) fake_buttons(0);
         else if (e->btn >= 0) { fake_buttons(1u << e->btn); fake_buttons(0); }
         else if (e->enc >= 0) fake_enc[e->enc % 7] += e->n;
         else fake_keys(e->keys);
