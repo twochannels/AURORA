@@ -16,7 +16,7 @@
 #define DLY_LEN 49152u                   /* 1.1 s */
 static int16_t dly_line[DLY_LEN] FM1_POOL;
 static uint32_t dly_w;                               /* the write index, wrapped by a compare (no modulo: the chip has no divider) */
-static int32_t dly_lp;
+static int32_t dly_lp, dly_err;                      /* the loop's damping one-pole and its rounding remainder (no dead zone: a few LSB cannot sit in the loop for ever) */
 static uint32_t dly_wow, dly_flt;
 #if !defined(DINGHY_HOST)
 static uint32_t dly_hot;                             /* writes the line had to clamp: a meter (tests/host.c declares it) */
@@ -74,7 +74,7 @@ static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place
 {
     uint32_t i, time = patch.dly_sync ? sync_dly : DLY_TIME[patch.dly_time], half = time >> 1;
     int32_t fb = patch.dly_fb * 250, mix = patch.dly_mix * 258, damp = 32767 - patch.dly_damp * 230;
-    int32_t tape = patch.dly_tape, drive = 32767 + tape * 258, m16;
+    int32_t tape = patch.dly_tape, drive = 32767 + tape * 258, undrive = (32767 << 15) / drive, m16;   /* TAPE's drive, and exactly its inverse after the clip: the saturation can only compress */
     if (tape) {                                     /* TAPE: the repeats wander (wow and flutter), darken and saturate */
         int32_t target;
         damp -= tape * 120;
@@ -110,9 +110,9 @@ static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place
             tap = dly_line[dly_back(time)];
             tap2 = patch.dly_ping ? dly_line[dly_back(half)] : tap;
         }
-        dly_lp += mulq15r(tap - dly_lp, damp);      /* the loop's damping (rounded: no DC limit cycle) */
+        { int32_t e = (tap - dly_lp) * damp + dly_err; dly_lp += e / 32768; dly_err = e % 32768; }   /* the loop's damping, the remainder carried: every difference moves it */
         { int32_t f = mulq15r(dly_lp, fb);
-          if (tape) f = softclip(mulq15(f, drive)) - mulq15(softclip(mulq15(f, drive)), tape * 100);   /* saturates, then a little less level */
+          if (tape) f = mulq15r(softclip(mulq15r(f, drive)), undrive);   /* saturates: driven in, clipped, the drive taken back out, so the loop's gain stays FEEDBK's */
           if (in + f > 32767 || in + f < -32767) dly_hot++;
           f = clamp(in + f, -32767, 32767);
           if (frz_now) f = dly_line[dly_w] + mulq15(f - dly_line[dly_w], frz_new);   /* held: the old stays, the new comes in by what FREEZE leaves */
