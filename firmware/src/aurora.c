@@ -88,7 +88,7 @@ typedef struct {
     volatile uint32_t trig;
     uint32_t seen, age;
     volatile uint8_t active;
-    uint32_t ph[NP], ph2[NPAIR];                   /* each partial's phase, and the pairs' second halves */
+    uint32_t ph[NP], ph2[NPAIR];                   /* each partial's phase, and the pairs' beat phases */
     uint32_t sph[NSW];                             /* the swarm's phases */
     int32_t sdrift[NSW], sdtarget[NSW];            /* each saw's own pitch wander (random LFOs, DRIFT) */
     int32_t sic[2][2];                             /* the swarm's two filters' states (left-leaning, right-leaning) */
@@ -200,7 +200,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         if (!w->rng) w->rng = 0x9E3779B9u * (uint32_t)(w - voices + 1);
         if (!w->env) {                             /* from silence: Schroeder phases, so the harmonics never all peak together */
             for (k = 0; k < NP; k++) w->ph[k] = (uint32_t)(k * (k + 1u)) * 178956970u;   /* pi k (k + 1) / NP */
-            for (k = 0; k < NPAIR; k++) w->ph2[k] = w->ph[k];
+            for (k = 0; k < NPAIR; k++) w->ph2[k] = 0;                 /* the beats start at full */
             for (k = 0; k < NSW; k++) w->sph[k] = k * 858993459u + (k * k) * 300000000u;   /* the saws spread round the cycle */
             w->sic[0][0] = w->sic[0][1] = w->sic[1][0] = w->sic[1][1] = 0;
         }
@@ -275,24 +275,21 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
             uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
             if ((!from[k] && !target[k]) || inc >= 0x80000000u) {           /* silent, or past Nyquist: it would fold back */
                 w->ph[k] = ph + inc * HALF_FRAMES;
-                if (k < NPAIR) w->ph2[k] = w->ph2[k] + inc * HALF_FRAMES;
+                if (k < NPAIR) w->ph2[k] = w->ph2[k] + (inc >> 16) * dq * HALF_FRAMES;
                 continue;
             }
-            if (k < NPAIR && dq) {
-                uint32_t ph2 = w->ph2[k], inca = inc + (inc >> 16) * dq, incb = inc - (inc >> 16) * dq;
-                a = ((a >> 8) * 23170) >> 7; d = (d * 23170) >> 15;          /* each half at 0.707: the pair keeps the partial's power */
-                for (i = 0; i < HALF_FRAMES; i++) {
-                    o[i] += mulq15(sine_r(ph), a >> 8) + mulq15(sine_r(ph2), a >> 8);
-                    a += d;
-                    ph += inca; ph2 += incb;
-                }
-                w->ph2[k] = ph2;
-            } else {
-                for (i = 0; i < HALF_FRAMES; i++) {
-                    o[i] += mulq15(sine_r(ph), a >> 8);
-                    a += d;
-                    ph += inc;
-                }
+            if (k < NPAIR && dq) {                 /* a pair as one sine at the pitch whose level beats at the pair's difference: exact
+                                                    * (sin p + sin q = 2 sin((p + q) / 2) cos((p - q) / 2)), the beat ramped across the block: one oscillator, not two */
+                uint32_t db = (inc >> 16) * dq, bph = w->ph2[k];            /* the beat's phase: half the pair's difference */
+                int32_t c0 = (sine_r(bph + 0x40000000u) * 23170) >> 14, c1 = (sine_r(bph + db * HALF_FRAMES + 0x40000000u) * 23170) >> 14;   /* 1.414 cos: two halves at 0.707 */
+                int32_t a0 = (from[k] * c0) >> 15, a1 = (target[k] * c1) >> 15;
+                a = a0 << 8; d = a1 - a0;
+                w->ph2[k] = bph + db * HALF_FRAMES;
+            }
+            for (i = 0; i < HALF_FRAMES; i++) {
+                o[i] += mulq15(sine_r(ph), a >> 8);
+                a += d;
+                ph += inc;
             }
             w->ph[k] = ph;
         }
