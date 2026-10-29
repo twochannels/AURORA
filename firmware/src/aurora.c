@@ -405,7 +405,7 @@ static void air_block(int32_t *st, uint32_t n)
     }
 }
 static svf_t mf_c;
-static int32_t mf_ic[2][2], mf_cutq = 130 * 16 * 16;   /* the master filter's states, a side, and its cutoff as it is now (cut16 x 16), slewed towards the knob */
+static int32_t mf_ic[2][2], mf_cutq = 128 * 16 * 16, mf_mix, mf_hp;   /* the master filter's states, a side; its cutoff now (cut16 x 16), slewed; its fade-in; its side */
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i, t0 = fm1_ticks();
@@ -446,24 +446,31 @@ static void app_audio(int32_t *out, uint32_t n)
     }
     {   /* FILTER: the master, like the Circuit Tracks': left a high-pass sweeping up, right a low-pass sweeping down, off in
          * the middle. The cutoff slews towards the knob over ~50 ms and the coefficients slide across the block, so a sweep
-         * is a sweep and not a staircase */
-        int32_t hp = patch.filter < 64u, on = patch.filter < 60u || patch.filter > 68u;
-        int32_t v = hp ? (on ? 60 - (int32_t)patch.filter : 0) : (on ? (int32_t)patch.filter - 68 : 0);
+         * is a sweep and not a staircase; the filter always runs, parked at the edge of the knob's side through the middle,
+         * and its output fades in over the last steps out of the middle, so a fast turn through the centre is a crossfade */
+        int32_t hp = patch.filter < 64u, v = hp ? 60 - (int32_t)patch.filter : (int32_t)patch.filter - 68;
         int32_t target = (hp ? 16 + v * 95 / 60 : 128 - v * 77 / 59) * 16 * 16;   /* 20 Hz .. 5 kHz up; 13 kHz .. 150 Hz down, x16 for the slew */
-        if (on) {
-            svf_t c0 = mf_c;
-            int32_t d1, d2, d3;
-            mf_cutq += (target - mf_cutq) >> 3;
-            svf_coef(&mf_c, mf_cutq >> 4, SVF_K(28));
-            d1 = mf_c.a1 - c0.a1; d2 = mf_c.a2 - c0.a2; d3 = mf_c.a3 - c0.a3;
-            for (i = 0; i < HALF_FRAMES; i++) {
-                svf_t c = c0;
-                int32_t lp, hpo, f = (int32_t)((i << 8) / HALF_FRAMES);   /* 0 .. 255 across the block */
-                c.a1 += (d1 * f) >> 8; c.a2 += (d2 * f) >> 8; c.a3 += (d3 * f) >> 8;
-                svf_step(&c, g_st[2u * i], &mf_ic[0][0], &mf_ic[0][1], &lp, &hpo); g_st[2u * i] = hp ? hpo : lp;
-                svf_step(&c, g_st[2u * i + 1u], &mf_ic[1][0], &mf_ic[1][1], &lp, &hpo); g_st[2u * i + 1u] = hp ? hpo : lp;
-            }
-        } else { mf_cutq = target; svf_coef(&mf_c, mf_cutq >> 4, SVF_K(28)); mf_ic[0][0] = mf_ic[0][1] = mf_ic[1][0] = mf_ic[1][1] = 0; }   /* off: parked at the edge it would start from */
+        int32_t mix_to = v > 0 ? 32767 : clamp((v + 4) * 8192, 0, 32767);          /* the fade: all in from 4 steps outside the middle */
+        svf_t c0 = mf_c;
+        int32_t d1, d2, d3, m0 = mf_mix, dm;
+        if (v <= 0) target = (hp ? 16 : 128) * 16 * 16;
+        if (hp != mf_hp) {                                                            /* the other side wanted: fade right out, then switch tap and edge with the state cleared */
+            mix_to = 0;
+            if (!mf_mix) { mf_hp = hp; mf_cutq = target; mf_ic[0][0] = mf_ic[0][1] = mf_ic[1][0] = mf_ic[1][1] = 0; }
+            else target = mf_cutq;
+        }
+        hp = mf_hp;
+        mf_cutq += (target - mf_cutq) >> 3;
+        mf_mix += clamp(mix_to - mf_mix, -4096, 4096);                                  /* a straight fade, 46 ms end to end, to exactly nothing */
+        svf_coef(&mf_c, mf_cutq >> 4, SVF_K(28));
+        d1 = mf_c.a1 - c0.a1; d2 = mf_c.a2 - c0.a2; d3 = mf_c.a3 - c0.a3; dm = mf_mix - m0;
+        for (i = 0; i < HALF_FRAMES; i++) {
+            svf_t c = c0;
+            int32_t lp, hpo, f = (int32_t)((i << 8) / HALF_FRAMES), m = m0 + ((dm * f) >> 8), y;   /* 0 .. 255 across the block */
+            c.a1 += (d1 * f) >> 8; c.a2 += (d2 * f) >> 8; c.a3 += (d3 * f) >> 8;
+            svf_step(&c, g_st[2u * i], &mf_ic[0][0], &mf_ic[0][1], &lp, &hpo); y = hp ? hpo : lp; g_st[2u * i] += mulq15(y - g_st[2u * i], m);
+            svf_step(&c, g_st[2u * i + 1u], &mf_ic[1][0], &mf_ic[1][1], &lp, &hpo); y = hp ? hpo : lp; g_st[2u * i + 1u] += mulq15(y - g_st[2u * i + 1u], m);
+        }
     }
     {
         int32_t pk = 0;
