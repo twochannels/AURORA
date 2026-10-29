@@ -22,7 +22,8 @@
  *   MIDI         notes on the MIDI page's channel; CC 80..87 are the eight macros, in the Circuit Tracks' order:
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
  *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
- *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands); REC held is FREEZE at full;
+ *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands: a latched key pressed again lets go,
+ *                the octave buttons move you to add notes elsewhere, the lights show what is latched here); REC held is FREEZE at full;
  *                SEQ is the autopilot (nine controls wander round where they are set); ARP morphs to scene B over
  *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
  *                SELECT is the pressure
@@ -1335,8 +1336,13 @@ static void app_loop(void)
     if (platform_screen_take()) page_drawn = page_filled = ~0u;   /* (the screen was lost: everything again) */
     keys = fm1_in.notes; down = keys & ~prev_keys; up = prev_keys & ~keys; prev_keys = keys;
     for (k = 0; k < 27u; k++) {
-        if (down >> k & 1u) { held[k] = (uint8_t)(base + k); note_on(held[k], 100); midi_send(0x90, held[k], 100); }
-        if (up >> k & 1u) { note_off(held[k]); midi_send(0x80, held[k], 0); }
+        if (down >> k & 1u) {
+            uint32_t n = base + k;
+            if (set.latch && (sus_held[n >> 3] >> (n & 7u) & 1u)) {           /* latched already: this press lets it go */
+                sus_held[n >> 3] &= (uint8_t)~(1u << (n & 7u)); voice_off(n); midi_send(0x80, n, 0); held[k] = 0xFF;
+            } else { held[k] = (uint8_t)n; note_on(n, 100); midi_send(0x90, n, 100); }
+        }
+        if (up >> k & 1u && held[k] != 0xFF) { note_off(held[k]); midi_send(0x80, held[k], 0); }
     }
     b = fm1_input_edges(&k);
     if (b & (1u << BTN_OCT_DOWN) && set.oct_plus2 > 0u) { set.oct_plus2--; changed(); }
@@ -1428,6 +1434,7 @@ static void app_loop(void)
     sounding = voices_sounding();
     for (k = 0; k < NV; k++)
         if (sounding >> k & 1u) { if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
+    for (k = 0; k < 27u; k++) if (sus_held[(base + k) >> 3] >> ((base + k) & 7u) & 1u) lit |= 1u << k;   /* and the latched ones, in this octave */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
