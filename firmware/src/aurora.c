@@ -28,7 +28,7 @@
  *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
  *                SELECT is the pressure
  *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
- *   pages        HOME (the aurora: the sound drawn; FILTER SPACE AIR FREEZE under the knobs), EDIT: TONE, TONE 2, SWARM, AIR; ENV: SHAPE TOUCH;
+ *   pages        HOME (the aurora: the sound drawn; FILTER TILT AIR MOVE under the knobs), EDIT: TONE, TONE 2, SWARM, AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
  *                shift, each part in the colour of its knob. The panel is kept 2 s after the last change.
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. tests/host.c runs this file
@@ -538,7 +538,7 @@ typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[
 static void draw_aurora(void), draw_tone(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
             draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
-    {"AURORA",  draw_aurora, 1, {PA(filter, "FILTER", 127, K_BIP), PA(rv_mix, "SPACE", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(freeze, "FREEZE", 127, K_NUM)}},
+    {"AURORA",  draw_aurora, 1, {PA(filter, "FILTER", 127, K_BIP), PA(tilt, "TILT", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(move, "MOVE", 127, K_NUM)}},
     {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
     {"TONE 2",  draw_tone2,  0, {PA(stretch, "STRETCH", 127, K_NUM), PA(sub, "SUB", 127, K_NUM), PA(tune, "TUNE", 24, K_SEMI), PA(sat, "DRIVE", 127, K_NUM)}},
     {"SWARM",   draw_swarm,  0, {PA(sw_level, "LEVEL", 127, K_NUM), PA(sw_spread, "SPREAD", 127, K_NUM), PA(sw_cut, "CUTOFF", 127, K_NUM), PA(sw_res, "RESO", 127, K_NUM)}},
