@@ -429,9 +429,9 @@ static void app_audio(int32_t *out, uint32_t n)
         g_st[2u * i] = mulq15(soft_knee(l, 20000), vol);
         g_st[2u * i + 1u] = mulq15(soft_knee(r, 20000), vol);
     }
-    if (patch.sat) {                               /* SATURATE: the pad driven into the clip and brought back, so it warms and then grits without getting louder */
-        int32_t drive = 32767 + (int32_t)patch.sat * 774, undrive = (32767 << 15) / drive, boost = 32767 + (int32_t)patch.sat * 64;
-        for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(mulq15r(softclip(mulq15r(g_st[i], drive)), undrive), boost);
+    if (patch.sat) {                               /* DRIVE: the pad into the clip at up to x16, the level matched at a -6 dBFS peak, so it warms, compresses, then grits */
+        int32_t d8 = 256 + (int32_t)patch.sat * 30, k = (9681 << 15) / softclip((10000 * d8) >> 8);   /* 9681 = softclip(10000): x1 at DRIVE 0, the level matched at a -10 dBFS peak, about the pad's */
+        for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(softclip((g_st[i] * d8) >> 8), k);
     }
     air_block(g_st, HALF_FRAMES);
     fx_delay(g_st, HALF_FRAMES);
@@ -946,10 +946,10 @@ static void draw_tone2(void)
         cv_text(150, 6, &FONT_S, "TUNE", C_LEG); cv_text(196, 6, &FONT_S, tx, t ? KC[2] : C_LEG);
     }
     {   /* DRIVE: the curve in to out */
-        int32_t x, drive = 32767 + (int32_t)patch.sat * 774, undrive = (32767 << 15) / drive, boost = 32767 + (int32_t)patch.sat * 64;
+        int32_t x, d8 = 256 + (int32_t)patch.sat * 30, k = (9681 << 15) / softclip((10000 * d8) >> 8);
         cv_hline(8, 56, 40, C_RULE); cv_vline(8, 6, 40, C_RULE);
         for (x = 0; x < 48; x++) {
-            int32_t in = x * 32767 / 47, y = mulq15(mulq15r(softclip(mulq15r(in, drive)), undrive), boost);
+            int32_t in = x * 32767 / 47, y = mulq15(softclip((in * d8) >> 8), k);
             cv_pset(8 + x, 40 - (y * 34 >> 15), KC[3]);
         }
     }
