@@ -44,7 +44,7 @@
         <li><span class="kn k2">SWARM</span> five saws under it, through a filter that tracks the note</li>
         <li><span class="kn k3">AIR</span> wind and crackle over it, breathing with the pad</li>
         <li><span class="kn k4">MOVE</span> a random walk, a Lorenz attractor and a tide, bending it all, slowly</li>
-        <li><span class="kn k1">SPACE</span> a plate with a shimmer, a tape delay, a freeze that holds the moment in grains</li>
+        <li><span class="kn k1">SPACE</span> a plate with a shimmer, a tape delay, a freeze that holds the moment in grains, a master filter</li>
         <li><span class="kn k2">MACROS</span> the Circuit Tracks' eight knobs as eight named controls</li>
       </ul>
     </div>
@@ -54,10 +54,11 @@
   <p>Each part of a picture is drawn in the colour of the knob that moves it. EDIT, ENV, LFO and FX step through their groups.</p>
   <div class="pages">
     <figure><img src="img/tone.png" width="480" height="480" alt="TONE: the twelve partials as bars"><figcaption><b>TONE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The partials as bars: TILT the slope, SPREAD odd against even, BRIGHT the ceiling, DETUNE the pairs.</figcaption></figure>
+    <figure><img src="img/tone2.png" width="480" height="480" alt="TONE 2: the partials along a frequency axis, stretched"><figcaption><b>TONE 2</b><span class="knobs"><i></i><i></i><i></i><i></i></span>Where the partials sit: STRETCH moves them apart from string to bell, SUB an octave under, TUNE a transpose, DRIVE a soft clip.</figcaption></figure>
     <figure><img src="img/swarm.png" width="480" height="480" alt="SWARM: five saws under a filter curve"><figcaption><b>SWARM</b><span class="knobs"><i></i><i></i><i></i><i></i></span>Five saws under the pad, through a low-pass that tracks the note.</figcaption></figure>
     <figure><img src="img/air.png" width="480" height="480" alt="AIR: a wind trace under a band-pass hump"><figcaption><b>AIR</b><span class="knobs"><i></i><i></i><i></i><i></i></span>Wind and crackle through a band-pass, breathing with the pad.</figcaption></figure>
     <figure><img src="img/shape.png" width="480" height="480" alt="SHAPE: an ADSR envelope curve"><figcaption><b>SHAPE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The envelope, with the loudest voice riding it.</figcaption></figure>
-    <figure><img src="img/touch.png" width="480" height="480" alt="TOUCH: bloom stairs, swell lift, velocity line"><figcaption><b>TOUCH</b><span class="knobs"><i></i><i></i><i></i><i></i></span>BLOOM staggers the partials' entry, SWELL the reach of pressure, VELO how much velocity counts.</figcaption></figure>
+    <figure><img src="img/touch.png" width="480" height="480" alt="TOUCH: bloom stairs, swell lift, velocity line"><figcaption><b>TOUCH</b><span class="knobs"><i></i><i></i><i></i><i></i></span>BLOOM staggers the partials' entry, SWELL the reach of pressure, VELO how much velocity counts, GLIDE slides a note in from the last.</figcaption></figure>
     <figure><img src="img/move.png" width="480" height="480" alt="MOVE: four sources scrolling"><figcaption><b>MOVE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The four sources scrolling, dim as they are and bright as MOVE lets them through.</figcaption></figure>
     <figure><img src="img/sources.png" width="480" height="480" alt="SOURCES: the movement matrix"><figcaption><b>SOURCES</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The matrix by its rows: a random LFO, a random walk, a Lorenz attractor, a tide over bars.</figcaption></figure>
     <figure><img src="img/targets.png" width="480" height="480" alt="TARGETS: the movement matrix, by column"><figcaption><b>TARGETS</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The matrix by its columns: how deep the movement goes into TILT, COLOUR, PITCH and SPACE.</figcaption></figure>
@@ -88,11 +89,11 @@
   <div class="panel">
     <div><b>KNOB 1..4</b><span>the page's four controls, each in its colour</span></div>
     <div><b>PRESETS</b><span>the presets, on any page</span></div>
-    <div><b>EDIT</b><span>TONE, SWARM, AIR</span></div>
+    <div><b>EDIT</b><span>TONE, TONE 2, SWARM, AIR</span></div>
     <div><b>ENV</b><span>SHAPE, TOUCH</span></div>
     <div><b>LFO</b><span>MOVE, SOURCES, TARGETS</span></div>
     <div><b>FX</b><span>SPACE, DELAY, FREEZE</span></div>
-    <div><b>HOME</b><span>the sky</span></div>
+    <div><b>HOME</b><span>the sky; FILTER, SPACE, AIR and FREEZE under the knobs</span></div>
     <div><b>GLO</b><span>MIDI</span></div>
     <div><b>ALGORITHM</b><span>the group's other pages; on HOME, a pitch bend that springs back</span></div>
     <div><b>SELECT</b><span>pressure, with no aftertouch to press: the swell</span></div>
@@ -112,6 +113,7 @@
     <tr><th>Velocity</th><td>the level, as much as VELO says</td></tr>
     <tr><th>Program change</th><td>a preset</td></tr>
     <tr><th>Clock, start</th><td>the delay's sync, and the tide's bars</td></tr>
+    <tr><th>CC 74</th><td>the master filter, high-pass to the left of centre, low-pass to the right</td></tr>
     <tr><th>Sustain, pitch bend, CC 7</th><td>as you would expect</td></tr>
   </table>
 

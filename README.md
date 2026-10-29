@@ -3,7 +3,8 @@
 An ambient instrument for the M-VAVE FM-1: big, wide sounds that keep moving on their own and bend to MIDI. A
 sound module for a dawless rig, built for playing rather than sequencing.
 
-- **The pad**: eight voices of twelve sine partials with an ADSR envelope and velocity (VELO sets how much). TILT sets how fast the partials fall off, SPREAD balances odd
+- **The pad**: eight voices of twelve sine partials with an ADSR envelope and velocity (VELO sets how much), a glide, and
+  on TONE 2 a STRETCH of the partials from string to bell, a SUB an octave under, a TUNE of +-12 and a DRIVE. TILT sets how fast the partials fall off, SPREAD balances odd
   against even from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry, DETUNE spreads
   each low partial into a pair so the pad shimmers and a chord's beats are smeared rather than bare.
 - **The swarm**: under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks the
@@ -15,15 +16,16 @@ sound module for a dawless rig, built for playing rather than sequencing.
   attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
 - **Width**: odd partials lean left, even right (WIDTH); mono-safe.
-- **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock.
+- **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock, and a master FILTER the
+  Circuit Tracks' way: one knob, centre off, left a high-pass sweeping up, right a low-pass sweeping down (CC 74).
 - **Freeze**: FREEZE holds the delay line and plays a cloud of grains off it (GRAIN their length, SPRAY how far back
   they pick, SHIFT their pitch, an octave either way), on into the phaser and the plate: the texture stays after the
   hands have left. Half way it smears away over a minute, at the top it holds for ever.
 - **The screen**: every page is a graphic the four knobs shift, each part drawn in the colour of the knob that
-  moves it (EDIT, ENV, LFO and FX step through their groups): TONE is the spectrum, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
+  moves it (EDIT, ENV, LFO and FX step through their groups): TONE is the spectrum, TONE 2 the partials' places, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
   sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
   line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with TILT, SPACE,
-  AIR and FREEZE under the knobs for playing.
+  AIR and FREEZE under the knobs for playing, FILTER first.
 - **Presets**: twelve, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB and ORGAN to the struck
   (GLASS, MALLET, PLUCK): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;

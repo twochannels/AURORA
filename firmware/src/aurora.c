@@ -27,7 +27,7 @@
  *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
  *                SELECT is the pressure
  *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
- *   pages        HOME (the aurora: the sound drawn; TILT SPACE AIR FREEZE under the knobs), EDIT: TONE SWARM AIR; ENV: SHAPE TOUCH;
+ *   pages        HOME (the aurora: the sound drawn; FILTER SPACE AIR FREEZE under the knobs), EDIT: TONE, TONE 2, SWARM, AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
  *                shift, each part in the colour of its knob. The panel is kept 2 s after the last change.
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. tests/host.c runs this file
@@ -58,13 +58,15 @@ typedef struct {
     uint8_t rv_mix, rv_size, rv_damp, rv_shim, rv_shift;         /* the plate and its shimmer */
     uint8_t freeze, frz_grain, frz_spray, frz_shift;              /* FREEZE: the delay line held, grains over it (aurora_fx.h) */
     uint8_t volume;
+    uint8_t stretch, sub, tune, sat, filter, glide;               /* TONE 2: the partials stretched apart, a sub-octave, a transpose (+-12), a drive; the master filter (HP .. LP); glide */
 } patch_t;
 static patch_t patch;
 /* the fields' names, in the struct's order: the emulator's "Copy sound" and any dump name them by these */
 static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,"
     "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
-    "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume";
-typedef char patch_fields_count_check[sizeof(patch_t) == 48u ? 1 : -1];   /* a field added: add its name above, and bump this */
+    "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,"
+    "stretch,sub,tune,sat,filter,glide";
+typedef char patch_fields_count_check[sizeof(patch_t) == 54u ? 1 : -1];   /* a field added: add its name above, and bump this */
 static const patch_t BASE_PATCH = {      /* the presets build on this; the boot sound is preset 0, AURORA, Ben's */
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
@@ -75,6 +77,7 @@ static const patch_t BASE_PATCH = {      /* the presets build on this; the boot 
     .rv_mix = 60, .rv_size = 100, .rv_damp = 50, .rv_shim = 0, .rv_shift = 12,
     .freeze = 0, .frz_grain = 80, .frz_spray = 70, .frz_shift = 12,
     .volume = 100,
+    .stretch = 0, .sub = 0, .tune = 12, .sat = 0, .filter = 64, .glide = 0,
 };
 static volatile uint32_t sync_dly;                 /* the delay's time from the MIDI clock, frames (the main loop's) */
 static int32_t rv_mix_now;                         /* SPACE this block, 0..127: the knob plus the movement */
@@ -97,6 +100,9 @@ typedef struct {
     int32_t walk[NP];                              /* each partial's random walk (Q15 around 0) */
     int32_t wander, wtarget;                       /* the voice's own random LFO (Q15): a slew towards random targets */
     int32_t env;                                   /* the envelope, Q24 */
+    int32_t gl;                                    /* the glide: the pitch offset still to slide away (1/256 semitone) */
+    uint32_t subph;                                /* the sub-octave's phase */
+    int32_t subamp;                                /* and its level last block */
     uint8_t stage;                                 /* 0 off 1 attack 2 held 3 release */
     uint32_t t;                                    /* blocks since the note began (BLOOM) */
     uint32_t rng;
@@ -190,7 +196,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     uint32_t k, i, trig = w->trig;
     int32_t target[NP], from[NP], env_q15, pr = press * 258, sum = 0;
     int32_t tilt16 = (int32_t)patch.tilt * 16 + mv_tilt16, spread = (int32_t)patch.spread - 64 + mv_spread, bright = (int32_t)patch.bright + mv_spread;
-    int32_t pitch256 = (int32_t)w->note * 256 + bend256 + bend_knob + mv_pitch256;
+    int32_t pitch256 = ((int32_t)w->note + (int32_t)patch.tune - 12) * 256 + bend256 + bend_knob + mv_pitch256 + w->gl;
     int32_t swell = mulq15(pr, (int32_t)patch.swell * 258);        /* 0..32767: pressure opening the pad */
     int32_t wl, wr, width = (int32_t)patch.width * 258;
     if (trig != w->seen) {                         /* a new note */
@@ -200,12 +206,14 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         if (!w->rng) w->rng = 0x9E3779B9u * (uint32_t)(w - voices + 1);
         if (!w->env) {                             /* from silence: Schroeder phases, so the harmonics never all peak together */
             for (k = 0; k < NP; k++) w->ph[k] = (uint32_t)(k * (k + 1u)) * 178956970u;   /* pi k (k + 1) / NP */
+            w->subph = 0; w->subamp = 0;
             for (k = 0; k < NPAIR; k++) w->ph2[k] = 0;                 /* the beats start at full */
             for (k = 0; k < NSW; k++) w->sph[k] = k * 858993459u + (k * k) * 300000000u;   /* the saws spread round the cycle */
             w->sic[0][0] = w->sic[0][1] = w->sic[1][0] = w->sic[1][1] = 0;
         }
     }
     if (!w->gate && w->stage && w->stage < 3) w->stage = 3;
+    if (w->gl) w->gl -= w->gl / (1 + (int32_t)patch.glide * patch.glide / 16);   /* the glide: towards the note, 1 block .. 6 s */
     /* the envelope, a block at a time: linear attack, exponential release */
     if (w->stage == 1) {
         w->env += (1 << 24) / (int32_t)(4u + ((uint32_t)patch.attack * patch.attack >> 4));   /* 4 .. 1000 blocks */
@@ -269,10 +277,12 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
          * (a tempered fifth's 785 Hz, once a second) are smeared into it rather than pulsing bare */
         int32_t *odd = osc_acc[core][0], *even = osc_acc[core][1];
         uint32_t inc0 = pitch_inc256(pitch256), dq = ((uint32_t)patch.detune * 611u) >> 8;   /* the spread, 1/65536 of the pitch */
+        uint32_t stretch_q15 = (uint32_t)patch.stretch * patch.stretch * 4u / 5u;              /* S: 0 .. 0.39 (squared: fine at the low end) */
         for (i = 0; i < HALF_FRAMES; i++) odd[i] = even[i] = 0;
         for (k = 0; k < NP; k++) {
             int32_t *o = (k & 1u) ? even : odd, a = from[k] << 8, d = target[k] - from[k];
             uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
+            if (patch.stretch) inc += (inc >> 16) * ((stretch_q15 * k) >> 1);   /* STRETCH: partial k at (k + 1)(1 + S k): a string's stretch, then a bell's */
             if ((!from[k] && !target[k]) || inc >= 0x80000000u) {           /* silent, or past Nyquist: it would fold back */
                 w->ph[k] = ph + inc * HALF_FRAMES;
                 if (k < NPAIR) w->ph2[k] = w->ph2[k] + (inc >> 16) * dq * HALF_FRAMES;
@@ -292,6 +302,12 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
                 ph += inc;
             }
             w->ph[k] = ph;
+        }
+        if (patch.sub || w->subamp) {              /* SUB: a sine an octave under the fundamental, at its level x SUB */
+            int32_t a = w->subamp << 8, t = mulq15(target[0], (int32_t)patch.sub * 258), d = t - w->subamp;
+            uint32_t ph = w->subph, inc = inc0 >> 1;
+            for (i = 0; i < HALF_FRAMES; i++) { odd[i] += mulq15(sine_r(ph), a >> 8); a += d; ph += inc; }
+            w->subph = ph; w->subamp = t;
         }
         /* the swarm: NSW saws a little apart (SPREAD, up to +-50 cents, each wandering by DRIFT), through a low-pass
          * that tracks the note, opened by CUTOFF, darkened by TILT, bent by the movement's colour and pressure;
@@ -347,6 +363,7 @@ static struct {
     int32_t ic[2][2];
     svf_t c[2];
 } air = {{0x1D872B41u, 0x7A3F9C25u}, {0, 0}, 0, 0, 0, 0x99999999u, 32767, {{0, 0}, {0, 0}}, {{0, 0, 0, 0}, {0, 0, 0, 0}}};
+static volatile int32_t air_kick;                  /* a note just struck: a puff for the air (voice_on) */
 static void air_block(int32_t *st, uint32_t n)
 {
     int32_t level = ((int32_t)patch.air * patch.air * patch.air) >> 6, target = 0, i, side;   /* cubic (127^3 / 64 = 32005): a soft undertone over most of the knob, loud at the top */
@@ -354,6 +371,7 @@ static void air_block(int32_t *st, uint32_t n)
     if (!level && !air.env) return;
     for (v = 0; v < NV; v++) if ((voices[v].env >> 9) > target) target = voices[v].env >> 9;
     air.env += ((target - air.env) * (target > air.env ? 630 : 47)) >> 15;   /* with the pad: in over ~0.3 s, lingering ~4 s after it */
+    if (air_kick) { air.env += air_kick; if (air.env > 32767) air.env = 32767; air_kick = 0; }   /* a note struck: a puff, by its velocity */
     random_lfo(&air.wander, &air.wtarget, &air.rng[0]);
     if (patch.air_breath) {                        /* the breath: in and out on its own, one every 20 s at 1 to one every 2 s at 127 (log),
                                                     * the in-breath 60 % of it, the pace nudged +-25 % by the wander: no two alike */
@@ -386,6 +404,8 @@ static void air_block(int32_t *st, uint32_t n)
         }
     }
 }
+static svf_t mf_c;
+static int32_t mf_ic[2][2];                        /* the master filter's states, a side */
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i, t0 = fm1_ticks();
@@ -409,6 +429,10 @@ static void app_audio(int32_t *out, uint32_t n)
         g_st[2u * i] = mulq15(soft_knee(l, 20000), vol);
         g_st[2u * i + 1u] = mulq15(soft_knee(r, 20000), vol);
     }
+    if (patch.sat) {                               /* SATURATE: the pad driven into the clip and brought back, so it warms and then grits without getting louder */
+        int32_t drive = 32767 + (int32_t)patch.sat * 774, undrive = (32767 << 15) / drive, boost = 32767 + (int32_t)patch.sat * 64;
+        for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(mulq15r(softclip(mulq15r(g_st[i], drive)), undrive), boost);
+    }
     air_block(g_st, HALF_FRAMES);
     fx_delay(g_st, HALF_FRAMES);
     {                                              /* SPACE: the wet on top of the dry, the dry down to half at full */
@@ -420,6 +444,16 @@ static void app_audio(int32_t *out, uint32_t n)
             for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(g_st[i], dry) + rv_wet[i];
         }
     }
+    if (patch.filter < 60u || patch.filter > 68u) {   /* FILTER: the master, like the Circuit Tracks': left a high-pass sweeping up, right a low-pass sweeping down, off in the middle */
+        int32_t hp = patch.filter < 60u, v = hp ? 60 - (int32_t)patch.filter : (int32_t)patch.filter - 68;
+        int32_t cut16 = (hp ? 16 + v * 95 / 60 : 128 - v * 77 / 59) * 16;   /* 20 Hz .. 5 kHz up; 13 kHz .. 150 Hz down */
+        svf_coef(&mf_c, cut16, SVF_K(28));
+        for (i = 0; i < HALF_FRAMES; i++) {
+            int32_t lp, hpo;
+            svf_step(&mf_c, g_st[2u * i], &mf_ic[0][0], &mf_ic[0][1], &lp, &hpo); g_st[2u * i] = hp ? hpo : lp;
+            svf_step(&mf_c, g_st[2u * i + 1u], &mf_ic[1][0], &mf_ic[1][1], &lp, &hpo); g_st[2u * i + 1u] = hp ? hpo : lp;
+        }
+    } else mf_ic[0][0] = mf_ic[0][1] = mf_ic[1][0] = mf_ic[1][1] = 0;
     {
         int32_t pk = 0;
         for (i = 0; i < 2u * HALF_FRAMES; i++) {
@@ -434,10 +468,12 @@ static void app_audio(int32_t *out, uint32_t n)
 
 /* ---- the main loop's side: notes */
 static uint32_t voice_ages;
+static uint32_t last_note = 60;
 static void voice_on(uint32_t note, uint32_t vel)
 {
-    uint32_t v, pick = 0, best = 0xFFFFFFFFu;
+    uint32_t v, pick = 0, best = 0xFFFFFFFFu, held = 0;
     if (note > 127u) return;
+    for (v = 0; v < NV; v++) if (voices[v].gate) held++;
     for (v = 0; v < NV; v++) {
         voice_t *w = &voices[v];
         uint32_t score = w->note == note && w->gate ? 0u : w->gate ? 0xC0000000u + w->age : w->active ? 0x80000000u + w->age : w->age;
@@ -447,6 +483,9 @@ static void voice_on(uint32_t note, uint32_t vel)
     voices[pick].vel = (uint8_t)(vel > 127u ? 127u : vel);
     voices[pick].age = ++voice_ages;
     voices[pick].gate = 1;
+    voices[pick].gl = held && patch.glide ? ((int32_t)last_note - (int32_t)note) * 256 : 0;   /* GLIDE: a note over a held one slides in from the last */
+    last_note = note;
+    air_kick += (int32_t)vel * 48;
     voices[pick].trig++;
 }
 static void voice_off(uint32_t note)
@@ -468,33 +507,34 @@ typedef struct {
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xA9u
+#define SET_MAGIC 0xAAu
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
-enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI };
+enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP };
 typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
 #define NONE {0, 0, 0, 0, 0}
-enum { PG_HOME = 0, PG_TONE, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
 typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
-static void draw_aurora(void), draw_tone(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
+static void draw_aurora(void), draw_tone(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
             draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
-    {"AURORA",  draw_aurora, 1, {PA(tilt, "TILT", 127, K_NUM), PA(rv_mix, "SPACE", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(freeze, "FREEZE", 127, K_NUM)}},
+    {"AURORA",  draw_aurora, 1, {PA(filter, "FILTER", 127, K_BIP), PA(rv_mix, "SPACE", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(freeze, "FREEZE", 127, K_NUM)}},
     {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
+    {"TONE 2",  draw_tone2,  0, {PA(stretch, "STRETCH", 127, K_NUM), PA(sub, "SUB", 127, K_NUM), PA(tune, "TUNE", 24, K_SEMI), PA(sat, "DRIVE", 127, K_NUM)}},
     {"SWARM",   draw_swarm,  0, {PA(sw_level, "LEVEL", 127, K_NUM), PA(sw_spread, "SPREAD", 127, K_NUM), PA(sw_cut, "CUTOFF", 127, K_NUM), PA(sw_res, "RESO", 127, K_NUM)}},
     {"AIR",     draw_air,    1, {PA(air, "AIR", 127, K_NUM), PA(air_tone, "TONE", 127, K_NUM), PA(air_tex, "TEXTUR", 127, K_NUM), PA(air_breath, "BREATH", 127, K_NUM)}},
     {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(decay, "DECAY", 127, K_NUM), PA(sustain, "SUSTAIN", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM)}},
-    {"TOUCH",   draw_touch,  1, {PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM), PA(velo, "VELO", 127, K_NUM), PA(volume, "VOLUME", 127, K_NUM)}},
+    {"TOUCH",   draw_touch,  1, {PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM), PA(velo, "VELO", 127, K_NUM), PA(glide, "GLIDE", 127, K_NUM)}},
     {"MOVE",    draw_move,   1, {PA(move, "MOVE", 127, K_NUM), PA(rate, "RATE", 127, K_NUM), PA(drift, "DRIFT", 127, K_NUM), PA(width, "WIDTH", 127, K_NUM)}},
     {"SOURCES", draw_matrix, 1, {PA(src_wander, "WANDER", 127, K_NUM), PA(src_walk, "WALK", 127, K_NUM), PA(src_chaos, "CHAOS", 127, K_NUM), PA(src_tide, "TIDE", 127, K_NUM)}},
     {"TARGETS", draw_matrix, 1, {PA(to_tilt, "TILT", 127, K_NUM), PA(to_colour, "COLOUR", 127, K_NUM), PA(to_pitch, "PITCH", 127, K_NUM), PA(to_space, "SPACE", 127, K_NUM)}},
     {"SPACE",   draw_space,  0, {PA(rv_mix, "MIX", 127, K_NUM), PA(rv_size, "SIZE", 127, K_NUM), PA(rv_damp, "DAMP", 127, K_NUM), PA(rv_shim, "SHIMMR", 127, K_NUM)}},
     {"DELAY",   draw_delay,  0, {PA(dly_time, "TIME", 127, K_NUM), PA(dly_fb, "FEEDBK", 127, K_NUM), PA(dly_mix, "MIX", 127, K_NUM), PA(dly_tape, "TAPE", 127, K_NUM)}},
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
-    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), NONE, NONE}},
+    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), NONE}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 3}, {PG_TONE, 3}, {PG_TONE, 3}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -528,9 +568,9 @@ static const preset_t PRESETS[] = {
     {"ORGAN", {D(attack, 4), D(decay, 0), D(sustain, 127), D(release, 8), D(tilt, 26), D(spread, 24), D(bright, 127), D(detune, 12), D(bloom, 0), D(sw_level, 0), D(move, 0), D(width, 40),
                D(rv_mix, 25), D(rv_size, 60), D(velo, 0), END}},
     {"GLASS", {D(attack, 0), D(decay, 70), D(sustain, 0), D(release, 60), D(tilt, 36), D(spread, 110), D(bright, 127), D(detune, 24), D(bloom, 0), D(swell, 30), D(sw_level, 0),
-               D(move, 30), D(rate, 40), D(width, 90), D(rv_mix, 70), D(rv_size, 100), D(rv_damp, 30), D(velo, 90), D(volume, 127), END}},
+               D(move, 30), D(rate, 40), D(width, 90), D(rv_mix, 70), D(rv_size, 100), D(rv_damp, 30), D(velo, 90), D(volume, 127), D(stretch, 30), END}},
     {"MALLET", {D(attack, 0), D(decay, 45), D(sustain, 0), D(release, 30), D(tilt, 80), D(spread, 50), D(bright, 90), D(detune, 0), D(bloom, 0), D(sw_level, 25), D(sw_cut, 90), D(sw_res, 40),
-                D(move, 10), D(width, 50), D(rv_mix, 40), D(rv_size, 70), D(dly_mix, 45), D(dly_fb, 55), D(dly_time, 70), D(dly_tape, 60), D(velo, 110), D(volume, 127), END}},
+                D(move, 10), D(width, 50), D(rv_mix, 40), D(rv_size, 70), D(dly_mix, 45), D(dly_fb, 55), D(dly_time, 70), D(dly_tape, 60), D(velo, 110), D(volume, 127), D(stretch, 16), END}},
     {"PLUCK", {D(attack, 0), D(decay, 25), D(sustain, 0), D(release, 15), D(tilt, 60), D(spread, 40), D(bright, 127), D(detune, 10), D(bloom, 0), D(sw_level, 70), D(sw_cut, 110), D(sw_res, 50), D(sw_spread, 30),
                D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), D(volume, 127), END}},
 };
@@ -629,6 +669,7 @@ static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
     case K_MCHAN: if (!v) src = "OMNI"; break;
     case K_EXPR: if (!v) src = "AT"; break;
     case K_SEMI: n -= 12; if (n < 0) { s[i++] = '-'; n = -n; } else if (n > 0) s[i++] = '+'; break;
+    case K_BIP: n -= 64; if (n >= -4 && n <= 4) { src = "OFF"; break; } if (n < 0) { s[i++] = '-'; n = -n; } else s[i++] = '+'; break;
     default: break;
     }
     if (src) { while (*src) s[i++] = *src++; s[i] = 0; return; }
@@ -735,6 +776,7 @@ static void draw_aurora(void)
     ints = 150 + ((au_glow * 106) >> 15);                                                  /* the light: 150 at rest, full while sounding (the FM-1's panel is dim: the mids must sit well above its black) */
     ints = ints - ((ints * patch.rv_mix) >> 9);                                            /* the haze dims it a little */
     ints += pr * 80 / 127; if (ints > 255) ints = 255;
+    if (patch.filter > 68u) ints -= ints * ((int32_t)patch.filter - 68) / 90;        /* the low-pass dims the sky */
     inc = (10000000u + (uint32_t)patch.rate * 1600000u) / 127u * (uint32_t)(127 - freeze_now);   /* the waves' drift: 40 s a cycle to 2 s, stopped by the ice */
     au_ph[0] += inc; au_ph[1] -= inc + (inc >> 1); au_ph[2] += inc >> 1;
     kx = 0xFFFFFFFFu / (120u + (uint32_t)patch.width * 240u / 127u); kx2 = kx * 2u + (kx >> 1);  /* the wavelength: 120 px narrow, 360 wide */
@@ -745,6 +787,7 @@ static void draw_aurora(void)
         uint32_t i;
         step[c] = (32 << 8) / th[c];
         if (c == 0) { lo = blend(RGB(0, 255, 100), RGB(160, 255, 200), (uint32_t)(127 - patch.tilt) * 2u); hi = blend(RGB(110, 40, 255), RGB(255, 30, 110), (uint32_t)patch.spread * 2u); }   /* saturated: the panel washes colour out */
+        if (patch.filter < 60u) lo = blend(lo, hi, (uint32_t)(60 - patch.filter) * 4u);   /* the high-pass thins the green out of the bottom */
         else if (c == 1) { lo = RGB(0, 230, 255); hi = RGB(170, 50, 255); }
         else { lo = RGB(60, 110, 255); hi = RGB(255, 60, 200); }
         for (i = 0; i < 8u; i++) col[c][i] = blend(blend(lo, hi, i * 36u), RGB(190, 220, 255), (uint32_t)frz);
@@ -852,6 +895,45 @@ static void draw_tone(void)
         int32_t xb = 8 + (bright / 10) * 19 + (bright % 10) * 19 / 10, x;
         for (x = xb + 3; x < 236; x += 3) cv_vline(x, 2, top - 1, dim(KC[2], 28u));
         cv_vline(xb, 2, top, KC[2]);
+    }
+}
+
+/* TONE 2: the partials along a log frequency axis, where the harmonics would be and where STRETCH puts them; the sub
+ * under the fundamental; TUNE's shift; the drive's curve */
+static int32_t log2_q8(uint32_t x)              /* log2 of x (Q16), in 1/256 octave */
+{
+    int32_t e = 0;
+    while (x >= 0x20000u) { x >>= 1; e++; }
+    while (x < 0x10000u && x) { x <<= 1; e--; }
+    return e * 256 + (int32_t)(((x - 0x10000u) * 256u) >> 16);   /* (the fraction linear: a bit flat mid-octave, fine for a picture) */
+}
+static void draw_tone2(void)
+{
+    int32_t k, base = 96, tilt16 = patch.tilt * 16, spread = (int32_t)patch.spread - 64;
+    uint32_t S = (uint32_t)patch.stretch * patch.stretch * 4u / 5u;
+    cv_hline(4, 236, base + 1, C_RULE);
+    for (k = 0; k < (int32_t)NP; k++) {
+        uint32_t r = ((uint32_t)(k + 1) << 16) + ((((uint32_t)(k + 1) << 16) >> 16) * ((S * (uint32_t)k) >> 1));   /* (k + 1)(1 + S k), Q16 */
+        int32_t sh = ((int32_t)patch.tune - 12) * 34 / 12, xh = 24 + sh + log2_q8((uint32_t)(k + 1) << 16) * 34 / 256, xs = 24 + sh + log2_q8(r) * 34 / 256;   /* (the axis shifted by TUNE) */
+        int32_t h = (shape_level((uint32_t)k, tilt16, spread, patch.bright) * 2 * 48) >> 15;
+        if (xh < 236) cv_vline(xh, base - 6, base, C_RULE);                                 /* where the harmonic would be */
+        if (xs < 236) { cv_vline(xs, base - (h < 2 ? 2 : h), base, KC[0]); if (xs != xh) cv_hline(xh, xs, base - 3, dim(KC[0], 90)); }
+    }
+    if (patch.sub) { int32_t h = patch.sub * 50 / 127; cv_rect(24 + ((int32_t)patch.tune - 12) * 34 / 12 - 34 - 3, base - h, 7, h, KC[1]); }   /* the sub, an octave left */
+    cv_text(4, 100, &FONT_S, "-8VA", patch.sub ? KC[1] : C_LEG); cv_text(214, 100, &FONT_S, "6", C_LEG);
+    {   /* TUNE: the transpose, as the axis's shift */
+        int32_t t = (int32_t)patch.tune - 12;
+        char tx[6]; int32_t n = t < 0 ? -t : t, q = 0;
+        tx[q++] = t < 0 ? '-' : '+'; if (n >= 10) tx[q++] = (char)('0' + n / 10); tx[q++] = (char)('0' + n % 10); tx[q] = 0;
+        cv_text(150, 6, &FONT_S, "TUNE", C_LEG); cv_text(196, 6, &FONT_S, tx, t ? KC[2] : C_LEG);
+    }
+    {   /* DRIVE: the curve in to out */
+        int32_t x, drive = 32767 + (int32_t)patch.sat * 774, undrive = (32767 << 15) / drive, boost = 32767 + (int32_t)patch.sat * 64;
+        cv_hline(8, 56, 40, C_RULE); cv_vline(8, 6, 40, C_RULE);
+        for (x = 0; x < 48; x++) {
+            int32_t in = x * 32767 / 47, y = mulq15(mulq15r(softclip(mulq15r(in, drive)), undrive), boost);
+            cv_pset(8 + x, 40 - (y * 34 >> 15), KC[3]);
+        }
     }
 }
 
@@ -1117,7 +1199,7 @@ static void draw_midi(void)
     if (set.midi_chan) { s[0] = (char)('0' + set.midi_chan / 10u); s[1] = (char)('0' + set.midi_chan % 10u); s[2] = 0; cv_text(100, 2, &FONT_S, set.midi_chan < 10u ? s + 1 : s, KC[0]); }
     else cv_text(100, 2, &FONT_S, "OMNI", KC[0]);
     cv_text(8, 23, &FONT_S, "SWELL BY", C_LEG);
-    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_TOUCH].p[3], set.expr, s + 3); cv_text(100, 23, &FONT_S, s, KC[1]); }
+    if (set.expr) { s[0] = 'C'; s[1] = 'C'; s[2] = ' '; fmt_value(&PAGES[PG_MIDI].p[2], set.expr, s + 3); cv_text(100, 23, &FONT_S, s, KC[1]); }
     else cv_text(100, 23, &FONT_S, "AFTERTOUCH", KC[1]);
     cv_text(8, 44, &FONT_S, "MACROS", C_LEG); cv_text(100, 44, &FONT_S, "CC 80..87", C_SILK);
     cv_text(8, 65, &FONT_S, "CLOCK", C_LEG); cv_text(100, 65, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
@@ -1296,6 +1378,7 @@ static void app_loop(void)
             if (d1 == 120u || d1 == 123u) { sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k); continue; }
             if (d1 >= 80u && d1 < 88u) { *((uint8_t *)&patch + MACRO[d1 - 80u].off) = d2; *scene_ptr(MACRO[d1 - 80u].off) = d2; changed(); midi_redraw = 1; }
             else if (d1 == 7u) { patch.volume = d2; *scene_ptr(offsetof(patch_t, volume)) = d2; changed(); }
+            else if (d1 == 74u) { patch.filter = d2; *scene_ptr(offsetof(patch_t, filter)) = d2; changed(); midi_redraw = 1; }   /* CC 74: the master filter */
         }
     }
     if (midi_redraw) { midi_redraw = 0; for (k = 0; k < 4u; k++) draw_knob(k); if (!PAGES[page].live) draw_graphic(); }
