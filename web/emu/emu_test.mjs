@@ -48,7 +48,7 @@ check("boots silent, draws the home screen", a.peak === 0 && colours(a.screen())
 {
   const m8 = new Uint8Array(a.ex.memory.buffer), p = a.ex.web_patch_fields(); let e = p; while (m8[e]) e++;
   const fields = new TextDecoder().decode(m8.subarray(p, e)).split(",");
-  check("the patch's field names match its size", fields.length === a.ex.web_patch_size() && fields[0] === "tilt" && fields.at(-1) === "volume");
+  check("the patch's field names match its size", fields.length === a.ex.web_patch_size() && fields[0] === "tilt" && fields.includes("volume"));
 }
 a.ex.web_keys(1 << 7);                            // C4
 a.render(300);

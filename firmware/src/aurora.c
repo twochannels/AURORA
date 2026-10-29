@@ -903,9 +903,9 @@ static void draw_tone(void)
 static int32_t log2_q8(uint32_t x)              /* log2 of x (Q16), in 1/256 octave */
 {
     int32_t e = 0;
-    while (x >= 0x20000u) { x >>= 1; e++; }
-    while (x < 0x10000u && x) { x <<= 1; e--; }
-    return e * 256 + (int32_t)(((x - 0x10000u) * 256u) >> 16);   /* (the fraction linear: a bit flat mid-octave, fine for a picture) */
+    while (x >= 131072u) { x >>= 1; e++; }
+    while (x < 65536u && x) { x <<= 1; e--; }
+    return e * 256 + (int32_t)(((x - 65536u) * 256u) >> 16);   /* (the fraction linear: a bit flat mid-octave, fine for a picture) */
 }
 static void draw_tone2(void)
 {
@@ -1294,7 +1294,7 @@ static void app_init(void)
 }
 static void app_loop(void)
 {
-    uint32_t keys, down, up, b, k, lit = 0, sounding, nv = 0;
+    uint32_t keys, down, up, b, k, lit = 0, sounding;
     uint32_t base = (uint32_t)(KEY0 + 12 * oct());
     uint8_t st, d1, d2;
     int32_t n;
@@ -1393,7 +1393,7 @@ static void app_loop(void)
     }
     sounding = voices_sounding();
     for (k = 0; k < NV; k++)
-        if (sounding >> k & 1u) { nv++; if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
+        if (sounding >> k & 1u) { if (voices[k].gate && voices[k].note >= base && voices[k].note < base + 27u) lit |= 1u << (voices[k].note - base); }   /* held keys lit, not tails */
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
