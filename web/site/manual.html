@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AURORA manual</title>
+<meta name="description" content="How to play AURORA on the M-VAVE FM-1: the first sounds, the HOME knobs, the pages, keeping a sound, scenes, the autopilot, MIDI.">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="img/favicon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+  /* a page's controls: the knob's colour, its name, what it does */
+  .ctl { width: 100%; border-collapse: collapse; margin: .4rem 0 1.2rem; font-size: 15px; }
+  .ctl td { padding: .3rem .6rem .3rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .ctl td:first-child { width: 7.5em; white-space: nowrap; }
+  .page { display: grid; grid-template-columns: 160px 1fr; gap: 1.2rem; align-items: start; margin: 1rem 0 1.6rem; }
+  .page img { width: 160px; height: 160px; image-rendering: pixelated; border-radius: 10px; border: 1px solid var(--rule); background: var(--panel); }
+  .page h3 { margin-top: 0; }
+  .page p { margin: .2rem 0 .4rem; color: var(--muted); }
+  @media (max-width: 560px) { .page { grid-template-columns: 1fr; } .page img { width: 120px; height: 120px; } }
+  .steps { padding-left: 1.3rem; } .steps li { margin: .35rem 0; }
+  .panel { grid-template-columns: 1fr; gap: 0; }
+  .panel b { min-width: 8.5em; }
+  .tip { border-left: 3px solid var(--k2); padding: .2rem 0 .2rem .9rem; color: var(--muted); margin: .8rem 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><a href="./">AURORA</a></h1>
+    <p>the manual</p>
+    <nav><a href="./">About</a><a href="install.html">Install</a><a href="emu/">Play</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
+  </header>
+
+  <p class="lead">Everything you need to play AURORA, from the first note to the parts you can leave for later.</p>
+  <p class="lead">The basics come first. If you only read one section, read <a href="#start">First sounds</a> and <a href="#home">HOME</a>. Everything after <a href="#pages">The pages</a> is for when you want to make your own sounds.</p>
+
+  <ol class="toc">
+    <li><a href="#start">First sounds</a></li>
+    <li><a href="#home">HOME: the sky and four knobs</a></li>
+    <li><a href="#live">Playing live</a></li>
+    <li><a href="#navigate">Finding your way round</a></li>
+    <li><a href="#pages">The pages</a></li>
+    <li><a href="#save">Keeping a sound</a></li>
+    <li><a href="#scenes">Two scenes and a morph</a></li>
+    <li><a href="#auto">The autopilot</a></li>
+    <li><a href="#midi">MIDI</a></li>
+    <li><a href="#help">If something goes wrong</a></li>
+  </ol>
+
+  <h2 id="start">First sounds</h2>
+  <ol class="steps">
+    <li><b>Install</b> AURORA from the <a href="install.html">install page</a>, or try it first in the <a href="emu/">emulator</a>. Switch the FM-1 on.</li>
+    <li><b>Play the keys.</b> AURORA is a pad: hold a note or a chord and give it a few seconds. It swells in, keeps moving, and the plate and delay carry on after you let go.</li>
+    <li><b>OCT&minus; and OCT+</b> move the keys an octave at a time, two octaves either way. Low chords are where AURORA lives.</li>
+    <li><b>Turn PRESETS</b> to hear the twenty sounds, from the slow and vast at the start to the short and struck at the end. The name is on the screen.</li>
+    <li><b>Volume</b> is on the MIDI page: press GLO and turn the third knob. The FM-1 has no volume knob of its own.</li>
+  </ol>
+  <p class="tip">Give every sound time. Most of what AURORA does happens over seconds and minutes, not on the attack.</p>
+
+  <h2 class="b" id="home">HOME: the sky and four knobs</h2>
+  <div class="page">
+    <img src="img/home.png" width="160" height="160" alt="HOME: the aurora">
+    <div>
+      <p>Press HOME. The aurora on the screen is the sound: it lights with every note, bends with the movement, and dims or thins as you filter. The preset's name is top left, with a star once you have changed something.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">FILTER</span></td><td>centre is off. Left of centre a high-pass thins the sound out, right of centre a low-pass darkens it. The same as the Circuit Tracks' master filter.</td></tr>
+        <tr><td><span class="kn k2">TILT</span></td><td>how fast the overtones fall away: left is dark and soft, right is bright and glassy.</td></tr>
+        <tr><td><span class="kn k3">AIR</span></td><td>wind and crackle over the pad, breathing with it.</td></tr>
+        <tr><td><span class="kn k4">MOVE</span></td><td>how much the sound moves on its own: still at the left, restless at the right.</td></tr>
+      </table>
+      <p>These four are chosen for playing. The sound itself is designed on the other pages.</p>
+    </div>
+  </div>
+
+  <h2 class="v" id="live">Playing live</h2>
+  <div class="panel">
+    <div><b>PLAY</b><span>latch. Keys stay held after you let go, so you can play a drone with no hands. Press a latched key again to let it go. Press PLAY again to release everything.</span></div>
+    <div><b>OCT&minus; OCT+</b><span>with latch on, the key lights show what is latched in this octave. Change octave and add notes from elsewhere.</span></div>
+    <div><b>SELECT</b><span>pressure. Turn it up and the pad swells open, brighter and louder, as far as SWELL on the TOUCH page allows. Turn it back down to let it rest.</span></div>
+    <div><b>ALGORITHM</b><span>on HOME, a pitch bend that springs back to centre when you stop turning.</span></div>
+    <div><b>REC</b><span>held, freezes the moment: the delay line holds, grains play off it, and you can let go of the keys and play over it. Release REC and it fades away.</span></div>
+    <div><b>OCT&minus; + OCT+</b><span>silence everything: every note, latched or sustained, let go at once.</span></div>
+  </div>
+
+  <h2 class="a" id="navigate">Finding your way round</h2>
+  <p>Every page is a picture of one part of the sound, with four controls under it. Each part of the picture is drawn in the colour of the knob that moves it: <span class="kn k1">green</span> for knob 1, <span class="kn k2">blue</span> for knob 2, <span class="kn k3">violet</span> for knob 3, <span class="kn k4">amber</span> for knob 4.</p>
+  <div class="panel">
+    <div><b>HOME</b><span>the sky</span></div>
+    <div><b>EDIT</b><span>the sound: TONE, TONE 2, SWARM, AIR. Press again for the next page.</span></div>
+    <div><b>ENV</b><span>the envelope: SHAPE, then TOUCH</span></div>
+    <div><b>LFO</b><span>the movement: MOVE, SOURCES, TARGETS</span></div>
+    <div><b>FX</b><span>the space: SPACE, DELAY, FREEZE</span></div>
+    <div><b>GLO</b><span>MIDI, and the volume</span></div>
+    <div><b>ALGORITHM</b><span>on any page but HOME, steps through that group's pages either way</span></div>
+    <div><b>PRESETS</b><span>the presets, from any page</span></div>
+  </div>
+  <p>The lit button tells you which group you are in. A knob turned on any page changes the sound at once, and the star appears by the name on HOME.</p>
+
+  <h2 id="pages">The pages</h2>
+  <p>In the order the buttons reach them. You do not need all of these to play: start with TONE and SHAPE, and come to the rest when a sound asks for it.</p>
+
+  <h3>EDIT: the sound</h3>
+  <div class="page">
+    <img src="img/tone.png" width="160" height="160" alt="TONE">
+    <div>
+      <h3>TONE</h3>
+      <p>The pad is twelve sine overtones a voice. This page is their spectrum, as bars.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">TILT</span></td><td>how fast the overtones fall off. The same TILT as on HOME.</td></tr>
+        <tr><td><span class="kn k2">SPREAD</span></td><td>odd overtones against even: hollow and clarinet-like at one end, full at the other.</td></tr>
+        <tr><td><span class="kn k3">BRIGHT</span></td><td>a ceiling the overtones fade out under. Lower it to soften.</td></tr>
+        <tr><td><span class="kn k4">DETUNE</span></td><td>splits each low overtone into a pair, so the pad shimmers and chords smear instead of beating.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/tone2.png" width="160" height="160" alt="TONE 2">
+    <div>
+      <h3>TONE 2</h3>
+      <p>Where the overtones sit, along a frequency axis.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">STRETCH</span></td><td>pushes the overtones apart, from a pure tone through a piano string to a bell.</td></tr>
+        <tr><td><span class="kn k2">SUB</span></td><td>a sine an octave below every note.</td></tr>
+        <tr><td><span class="kn k3">TUNE</span></td><td>transposes, a semitone at a time, an octave either way.</td></tr>
+        <tr><td><span class="kn k4">DRIVE</span></td><td>a soft overdrive on the whole pad, from clean to thick.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/swarm.png" width="160" height="160" alt="SWARM">
+    <div>
+      <h3>SWARM</h3>
+      <p>Five sawtooth waves under the pad, through a filter that follows the note.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">LEVEL</span></td><td>how much swarm. At zero there is none.</td></tr>
+        <tr><td><span class="kn k2">SPREAD</span></td><td>how far the five saws are tuned apart.</td></tr>
+        <tr><td><span class="kn k3">CUTOFF</span></td><td>the filter, dark to open.</td></tr>
+        <tr><td><span class="kn k4">RESO</span></td><td>the filter's peak.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/air.png" width="160" height="160" alt="AIR">
+    <div>
+      <h3>AIR</h3>
+      <p>Noise, shaped: a wind that swells with the pad and lingers after it.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">AIR</span></td><td>how much. The same AIR as on HOME.</td></tr>
+        <tr><td><span class="kn k2">TONE</span></td><td>the colour of the wind, low to high.</td></tr>
+        <tr><td><span class="kn k3">TEXTUR</span></td><td>smooth wind at one end, crackle at the other.</td></tr>
+        <tr><td><span class="kn k4">BREATH</span></td><td>the air breathes in and out on its own; this is how quickly.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>ENV: the envelope</h3>
+  <div class="page">
+    <img src="img/shape.png" width="160" height="160" alt="SHAPE">
+    <div>
+      <h3>SHAPE</h3>
+      <p>How a note comes and goes. The dot rides the curve as you play.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">ATTACK</span></td><td>how long a note takes to arrive. Long for a pad, short for a bell.</td></tr>
+        <tr><td><span class="kn k2">DECAY</span></td><td>how long it takes to fall to the sustain level.</td></tr>
+        <tr><td><span class="kn k3">SUSTAIN</span></td><td>the level a held note settles at. Zero makes a struck sound.</td></tr>
+        <tr><td><span class="kn k4">RELEAS</span></td><td>how long it lingers after you let go.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/touch.png" width="160" height="160" alt="TOUCH">
+    <div>
+      <h3>TOUCH</h3>
+      <p>How the sound answers your playing.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">BLOOM</span></td><td>staggers the overtones' entry, so a chord opens like a flower.</td></tr>
+        <tr><td><span class="kn k2">SWELL</span></td><td>how far pressure (SELECT, aftertouch or the expression CC) opens the pad.</td></tr>
+        <tr><td><span class="kn k3">VELO</span></td><td>how much velocity matters. Zero plays every note the same.</td></tr>
+        <tr><td><span class="kn k4">GLIDE</span></td><td>slides each note in from the last one.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>LFO: the movement</h3>
+  <p>AURORA never quite sits still. Four slow sources bend the tone, the colour, the pitch and the space. MOVE on HOME scales it all; these pages say what moves and where it goes.</p>
+  <div class="page">
+    <img src="img/move.png" width="160" height="160" alt="MOVE">
+    <div>
+      <h3>MOVE</h3>
+      <p>The four sources scrolling past, dim as they are and bright as MOVE lets them through.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">MOVE</span></td><td>how much movement. The same MOVE as on HOME.</td></tr>
+        <tr><td><span class="kn k2">RATE</span></td><td>how fast the sources go, from minutes to seconds.</td></tr>
+        <tr><td><span class="kn k3">DRIFT</span></td><td>a separate wander on every overtone: the pad loosens.</td></tr>
+        <tr><td><span class="kn k4">WIDTH</span></td><td>the stereo width. Odd overtones lean left, even right.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/sources.png" width="160" height="160" alt="SOURCES">
+    <div>
+      <h3>SOURCES</h3>
+      <p>How much of each source goes in.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">WANDER</span></td><td>a random LFO, a different one in every voice.</td></tr>
+        <tr><td><span class="kn k2">WALK</span></td><td>a random walk: slow, unrepeating.</td></tr>
+        <tr><td><span class="kn k3">CHAOS</span></td><td>a Lorenz attractor: smooth with sudden turns.</td></tr>
+        <tr><td><span class="kn k4">TIDE</span></td><td>a slow sine over bars of the MIDI clock, or over minutes without one.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/targets.png" width="160" height="160" alt="TARGETS">
+    <div>
+      <h3>TARGETS</h3>
+      <p>How deep the movement goes into each part of the sound.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">TILT</span></td><td>into the tone's slope.</td></tr>
+        <tr><td><span class="kn k2">COLOUR</span></td><td>into spread, brightness, the swarm's filter and the air's tone.</td></tr>
+        <tr><td><span class="kn k3">PITCH</span></td><td>into the pitch, gently.</td></tr>
+        <tr><td><span class="kn k4">SPACE</span></td><td>into the reverb.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>FX: the space</h3>
+  <div class="page">
+    <img src="img/space.png" width="160" height="160" alt="SPACE">
+    <div>
+      <h3>SPACE</h3>
+      <p>A plate reverb with a shimmer.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">MIX</span></td><td>how much reverb.</td></tr>
+        <tr><td><span class="kn k2">SIZE</span></td><td>how long the tail.</td></tr>
+        <tr><td><span class="kn k3">DAMP</span></td><td>how fast the highs die in the tail.</td></tr>
+        <tr><td><span class="kn k4">SHIMMR</span></td><td>a pitch-shifted feed back into the tail, an octave up: the halo.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/delay.png" width="160" height="160" alt="DELAY">
+    <div>
+      <h3>DELAY</h3>
+      <p>A tape delay.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">TIME</span></td><td>the gap between repeats.</td></tr>
+        <tr><td><span class="kn k2">FEEDBK</span></td><td>how many repeats.</td></tr>
+        <tr><td><span class="kn k3">MIX</span></td><td>how much delay.</td></tr>
+        <tr><td><span class="kn k4">TAPE</span></td><td>the tape's warmth and wobble, more with every repeat.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/freeze.png" width="160" height="160" alt="FREEZE">
+    <div>
+      <h3>FREEZE</h3>
+      <p>Holds what is in the delay line and plays a cloud of grains off it. REC does this at full while held; this page sets it for a preset.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">FREEZE</span></td><td>how long the hold lasts: seconds at the bottom, half a minute near the top, for ever at full. New notes come in as the hold lets go.</td></tr>
+        <tr><td><span class="kn k2">GRAIN</span></td><td>how long each grain is.</td></tr>
+        <tr><td><span class="kn k3">SPRAY</span></td><td>how far back in the line the grains pick from.</td></tr>
+        <tr><td><span class="kn k4">SHIFT</span></td><td>the grains' pitch, an octave either way, a semitone at a time.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>GLO: MIDI</h3>
+  <div class="page">
+    <img src="img/midi.png" width="160" height="160" alt="MIDI">
+    <div>
+      <h3>MIDI</h3>
+      <p>The settings, and a light for every message that comes in.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">CHAN</span></td><td>the MIDI channel, or OMNI for all of them.</td></tr>
+        <tr><td><span class="kn k2">EXPR</span></td><td>what counts as pressure: AT for channel aftertouch, or a CC number. CC 1, the mod wheel, to begin with.</td></tr>
+        <tr><td><span class="kn k3">VOLUME</span></td><td>the output level. Also CC 7.</td></tr>
+      </table>
+      <p>The version is top right.</p>
+    </div>
+  </div>
+
+  <h2 class="b" id="save">Keeping a sound</h2>
+  <p>AURORA remembers where you left it. Switch off and on and the same preset, with your changes, comes back. To keep a sound and still move on to others, put it in one of sixteen USER slots:</p>
+  <ol class="steps">
+    <li>Press <b>SAVE</b>. The screen shows <b>SAVE &gt; USER 1</b>.</li>
+    <li>Turn <b>PRESETS</b> to the slot you want.</li>
+    <li>Press <b>SAVE</b> again. The sound as you hear it is written, and that slot is now selected.</li>
+  </ol>
+  <p>Any other button cancels. USER slots follow the twenty presets on the PRESETS encoder.</p>
+  <p class="tip">In the <a href="emu/">emulator</a>, <b>Copy sound</b> puts the current sound on the clipboard as text, for sharing or keeping.</p>
+
+  <h2 class="v" id="scenes">Two scenes and a morph</h2>
+  <p>Every sound has a second scene, B: another preset to lean towards. Out of the box B is DEEP.</p>
+  <div class="panel">
+    <div><b>ARP</b><span>morphs from your sound to B over four seconds. Press again to come back.</span></div>
+    <div><b>ARP + PRESETS</b><span>hold ARP and turn PRESETS to pick which preset B is.</span></div>
+    <div><b>SEL</b><span>cuts straight to the other scene, no morph.</span></div>
+  </div>
+  <p>The name on HOME reads <b>B:</b> while you are at B. Turning a knob changes your own sound, not B.</p>
+
+  <h2 class="a" id="auto">The autopilot</h2>
+  <p>Press <b>SEQ</b> and nine controls wander slowly round where you set them: tilt, brightness, spread, the swarm's cutoff, the air and its tone, the reverb, the width and the movement's rate. Each picks a new place to drift to every half minute or so. The sound never leaves what you designed, it just stops sitting still. Press SEQ again and it settles back to how you set it.</p>
+  <p class="tip">Latch a chord, press SEQ, and leave the room.</p>
+
+  <h2 id="midi">MIDI</h2>
+  <p>Sequencer MIDI out into the FM-1's TRS jack, type A. Set the channel on the MIDI page or leave it OMNI.</p>
+  <table>
+    <tr><th>Notes, velocity</th><td>eight voices. VELO on TOUCH sets how much velocity counts.</td></tr>
+    <tr><th>CC 80..87</th><td>the eight macros, in the Circuit Tracks' order: <span class="kn k1">MOVE</span> <span class="kn k2">SPACE</span> <span class="kn k3">AIR</span> <span class="kn k4">TILT</span> <span class="kn k1">WIDTH</span> <span class="kn k2">DRIFT</span> <span class="kn k3">FREEZE</span> <span class="kn k4">BLOOM</span></td></tr>
+    <tr><th>CC 74</th><td>the master filter, high-pass left of centre, low-pass right</td></tr>
+    <tr><th>CC 7</th><td>volume</td></tr>
+    <tr><th>Channel pressure, or the EXPR CC</th><td>swells the pad open, as far as SWELL allows</td></tr>
+    <tr><th>CC 64</th><td>sustain</td></tr>
+    <tr><th>Pitch bend</th><td>the pitch, two semitones</td></tr>
+    <tr><th>Program change</th><td>a preset: 0 to 19 the factory sounds, 20 to 35 the USER slots</td></tr>
+    <tr><th>Clock, start</th><td>the tide counts its bars from the clock, and starts over on start</td></tr>
+  </table>
+  <p>The macros and the filter set the same controls the knobs do, so a sequencer can play the HOME page.</p>
+
+  <h2 class="b" id="help">If something goes wrong</h2>
+  <ul>
+    <li><b>A note will not stop</b>: press both OCT buttons at once. Everything goes quiet. If PLAY is lit, latch is on; press it.</li>
+    <li><b>No sound from MIDI</b>: check CHAN on the MIDI page, and that the light flashes when you play. OMNI takes every channel.</li>
+    <li><b>Too quiet, or distorting</b>: VOLUME on the MIDI page, then DRIVE on TONE 2.</li>
+    <li><b>It sounds different from the preset</b>: a star by the name means you have changed something. Turn PRESETS away and back to reload it.</li>
+    <li><b>It will not start</b>: hold OCT&minus; while switching on, then install again from the <a href="install.html">install page</a>. That rescue is always there.</li>
+    <li><b>Going back</b>: any other FM-1 firmware installs over AURORA the same way.</li>
+  </ul>
+
+  <footer><small>AURORA by twochannels, GPL-3.0. M-VAVE and FM-1 are their owners' marks. AURORA is not made or endorsed by any of them.</small></footer>
+</main>
+</body>
+</html>

@@ -19,13 +19,13 @@ sound module for a dawless rig, built for playing rather than sequencing.
 - **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock, and a master FILTER the
   Circuit Tracks' way: one knob, centre off, left a high-pass sweeping up, right a low-pass sweeping down (CC 74).
 - **Freeze**: FREEZE holds the delay line and plays a cloud of grains off it (GRAIN their length, SPRAY how far back
-  they pick, SHIFT their pitch, an octave either way), on into the phaser and the plate: the texture stays after the
+  they pick, SHIFT their pitch, an octave either way), on into the plate: the texture stays after the
   hands have left. Half way it smears away over a minute, at the top it holds for ever.
 - **The screen**: every page is a graphic the four knobs shift, each part drawn in the colour of the knob that
   moves it (EDIT, ENV, LFO and FX step through their groups): TONE is the spectrum, TONE 2 the partials' places, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
   sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
-  line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with TILT, SPACE,
-  AIR and MOVE under the knobs for playing, FILTER first.
+  line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with FILTER, TILT,
+  AIR and MOVE under the knobs for playing.
 - **Presets**: twenty, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB, ORGAN, MONOLITH, SLIDE,
   GRIT, RADIO and ABYSS to the struck (GLASS, MALLET, BELL, GAMELAN, PIANO, PLUCK): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
