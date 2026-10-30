@@ -43,7 +43,7 @@ Early days, but it is all in.
 The same platform and tools as [CS-1](https://github.com/twochannels/CS-1): `tests/run_host.sh` runs the firmware on
 a computer (a WAV and the screens), `web/emu/build.sh` makes the browser emulator, `web/site/build.sh` the site,
 `./build.sh` the device package (the JieLi toolchain in Docker; `tools/fm1_install.py build/aurora.fwsc` installs it).
-`tests/run_tests.sh` runs everything. The package identity is `FM-1_96N`.
+`tests/run_tests.sh` runs everything. The package identity is `FM-1_4747`.
 
 Installing any custom firmware is at your own risk: hold OCT- at power-on for the USB rescue. The official firmware
 and any firmware with Felucca's or M-VAVE's update loader install over AURORA.

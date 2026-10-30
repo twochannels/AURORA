@@ -47,7 +47,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "FM-1_960"                # AURORA: 95N (OUR_LOADER in the installer wants FM-1_9NN; Dinghy is 99N, FM-106 906)
+PRODUCT = "FM-1_4747"               # AURORA's package identity, fixed across versions (the hub knows the firmware by it; 960 was taken)
 VERSION = None                      # APP_VER: the VERSION file, or --release
 
 
@@ -288,16 +288,15 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_96Y, version string X.Y")
+    ap.add_argument("--release", metavar="X.Y", help="release build: version string X.Y, package aurora-X.Y.fwsc")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "aurora.fwsc"
     VERSION = (SRC / "VERSION").read_text().strip() if (SRC / "VERSION").exists() else None
-    if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
+    if a.release:
         m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
-        PRODUCT = "FM-1_96" + m[2]
         VERSION = m[1] + "." + m[2] + (m[3] or "")
         name = f"aurora-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk

@@ -95,7 +95,7 @@ static int keys_sense_live(void) { return fm1_an.con != 0u; }
 #define APP_NAME "AURORA"
 #endif
 #ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_960"                   /* package identity: 96N = AURORA build N (tools/build.py) */
+#define FELUCCA_ID "FM-1_4747"                  /* package identity (tools/build.py sets it for real builds) */
 #endif
 #ifndef APP_VER
 #define APP_VER "0.0"
