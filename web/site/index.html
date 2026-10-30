@@ -63,7 +63,7 @@
     <figure><img src="img/sources.png" width="480" height="480" alt="SOURCES: the movement matrix"><figcaption><b>SOURCES</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The matrix by its rows: a random LFO, a random walk, a Lorenz attractor, a tide over bars.</figcaption></figure>
     <figure><img src="img/targets.png" width="480" height="480" alt="TARGETS: the movement matrix, by column"><figcaption><b>TARGETS</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The matrix by its columns: how deep the movement goes into TILT, COLOUR, PITCH and SPACE.</figcaption></figure>
     <figure><img src="img/space.png" width="480" height="480" alt="SPACE: a decaying tail"><figcaption><b>SPACE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The plate's tail, the highs under it falling faster, sparks for SHIMMER.</figcaption></figure>
-    <figure><img src="img/delay.png" width="480" height="480" alt="DELAY: a note and its repeats"><figcaption><b>DELAY</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The repeats: TIME, FEEDBACK, MIX, and TAPE leaning them over.</figcaption></figure>
+    <figure><img src="img/delay.png" width="480" height="480" alt="DELAY: a note and its repeats"><figcaption><b>DELAY</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The repeats: TIME (a note division under a MIDI clock), FEEDBACK, MIX, and TAPE leaning them over.</figcaption></figure>
     <figure><img src="img/freeze.png" width="480" height="480" alt="FREEZE: grains on the delay line"><figcaption><b>FREEZE</b><span class="knobs"><i></i><i></i><i></i><i></i></span>The delay line held, and the grains playing off it, live.</figcaption></figure>
     <figure><img src="img/midi.png" width="480" height="480" alt="MIDI: channel and expression"><figcaption><b>MIDI</b><span class="knobs"><i></i><i></i></span>The channel, what swells the pad, the clock, a light for every message.</figcaption></figure>
   </div>
@@ -105,7 +105,8 @@
     <div><b>HOME</b><span>the sky; FILTER, TILT, AIR and MOVE under the knobs</span></div>
     <div><b>GLO</b><span>MIDI</span></div>
     <div><b>ALGORITHM</b><span>the group's other pages; on HOME, a pitch bend that springs back</span></div>
-    <div><b>SELECT</b><span>pressure, with no aftertouch to press: the swell</span></div>
+    <div><b>KEYS</b><span>velocity and pressure of their own: strike hard, lean in to swell</span></div>
+    <div><b>SELECT</b><span>the swell for every note at once, with no hands on the keys</span></div>
     <div><b>PLAY</b><span>latch: keys stay held; press one again to let it go; move octaves to add notes from elsewhere</span></div>
     <div><b>REC</b><span>held, FREEZE at full: catch the moment, let go of the keys, play over it</span></div>
     <div><b>SEQ</b><span>the autopilot: nine controls wander slowly round where they are set</span></div>
@@ -121,7 +122,7 @@
     <tr><th>Channel pressure, or an expression CC</th><td>swells the pad open, as far as SWELL allows</td></tr>
     <tr><th>Velocity</th><td>the level, as much as VELO says</td></tr>
     <tr><th>Program change</th><td>a preset</td></tr>
-    <tr><th>Clock, start</th><td>the tide's bars</td></tr>
+    <tr><th>Clock, start</th><td>the delay's TIME becomes a note division; the tide counts its bars</td></tr>
     <tr><th>CC 74</th><td>the master filter, high-pass to the left of centre, low-pass to the right</td></tr>
     <tr><th>Sustain, pitch bend, CC 7</th><td>as you would expect</td></tr>
   </table>

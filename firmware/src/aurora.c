@@ -21,8 +21,10 @@
  *                scatters grains over it (GRAIN their length, SPRAY how far back they pick, SHIFT their pitch)
  *   MIDI         notes on the MIDI page's channel; CC 80..87 are the eight macros, in the Circuit Tracks' order:
  *                MOVE SPACE AIR TILT WIDTH DRIFT FREEZE BLOOM; channel pressure or the expression CC swells
- *                (brightness and level); sustain (CC 64); pitch bend; MIDI clock for the delay
- *   keys         play; OCT- OCT+ the octave; PLAY latches (hold a drone with no hands: a latched key pressed again lets go,
+ *                (brightness and level), poly aftertouch a note; sustain (CC 64); pitch bend; MIDI clock: with one in, the
+ *                delay's TIME is a note division of the beat (SYNC), and the tide counts its bars
+ *   keys         play, with their own velocity and pressure (Velo's sensing on the analog rows: VELO, SWELL; KEYS on the MIDI
+ *                page turns it off); OCT- OCT+ the octave; PLAY latches (hold a drone with no hands: a latched key pressed again lets go,
  *                the octave buttons move you to add notes elsewhere, the lights show what is latched here); REC held is FREEZE at full;
  *                SEQ is the autopilot (nine controls wander round where they are set); ARP morphs to scene B over
  *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
@@ -81,6 +83,11 @@ static const patch_t BASE_PATCH = {      /* the presets build on this; the boot 
     .stretch = 0, .sub = 0, .tune = 12, .sat = 0, .filter = 64, .glide = 0,
 };
 static volatile uint32_t sync_dly;                 /* the delay's time from the MIDI clock, frames (the main loop's) */
+static volatile uint8_t dly_synced;                /* a clock is in: the delay runs at sync_dly, a note division of the beat (TIME picks it) */
+#define NDIV 12u                                   /* TIME while synced: a division of the beat, 1/32 to 1/2 */
+static const uint8_t DLY_DIV[NDIV][2] = {{1, 8}, {1, 6}, {1, 4}, {1, 3}, {3, 8}, {1, 2}, {2, 3}, {3, 4}, {1, 1}, {4, 3}, {3, 2}, {2, 1}};
+static const char *const DIV_NAME[NDIV] = {"1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4", "1/2T", "1/4.", "1/2"};
+static uint32_t clk_last;                          /* when the last clock tick came (below) */
 static int32_t rv_mix_now;                         /* SPACE this block, 0..127: the knob plus the movement */
 static int16_t SINE_RAM[1024];                        /* the sine table copied out of the flash: the oscillators read it 12 times a frame */
 static volatile uint8_t freeze_now;                   /* FREEZE as it applies: the knob, or 127 while REC is held */
@@ -195,7 +202,7 @@ static int32_t env_k(uint32_t t)             /* an exponential stage's step: 60 
 static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
 {
     uint32_t k, i, trig = w->trig;
-    int32_t target[NP], from[NP], env_q15, pr = press * 258, sum = 0;
+    int32_t target[NP], from[NP], env_q15, pr = (w->at > press ? w->at : press) * 258, sum = 0;
     int32_t tilt16 = (int32_t)patch.tilt * 16 + mv_tilt16, spread = (int32_t)patch.spread - 64 + mv_spread, bright = (int32_t)patch.bright + mv_spread;
     int32_t pitch256 = ((int32_t)w->note + (int32_t)patch.tune - 12) * 256 + bend256 + bend_knob + mv_pitch256 + w->gl;
     int32_t swell = mulq15(pr, (int32_t)patch.swell * 258);        /* 0..32767: pressure opening the pad */
@@ -502,6 +509,7 @@ static void voice_on(uint32_t note, uint32_t vel)
     voices[pick].vel = (uint8_t)(vel > 127u ? 127u : vel);
     voices[pick].age = ++voice_ages;
     voices[pick].gate = 1;
+    voices[pick].at = 0;
     voices[pick].gl = held && patch.glide ? ((int32_t)last_note - (int32_t)note) * 256 : 0;   /* GLIDE: a note over a held one slides in from the last */
     last_note = note;
     air_kick += (int32_t)vel * 48;
@@ -513,6 +521,12 @@ static void voice_off(uint32_t note)
     for (v = 0; v < NV; v++)
         if (voices[v].note == note && voices[v].gate) voices[v].gate = 0;
 }
+static void voices_pressure(uint32_t note, uint32_t p)   /* a held note's own pressure (a key, or poly aftertouch) */
+{
+    uint32_t v;
+    for (v = 0; v < NV; v++)
+        if (voices[v].note == note && voices[v].gate) voices[v].at = (uint8_t)(p > 127u ? 127u : p);
+}
 static uint32_t voices_sounding(void)
 {
     uint32_t v, m = 0;
@@ -522,13 +536,13 @@ static uint32_t voices_sounding(void)
 
 /* ---- what survives a power-off */
 typedef struct {
-    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b;   /* scene_b: the preset ARP morphs to */
+    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense;   /* scene_b: the preset ARP morphs to; key_sense: the keys' own velocity and pressure */
     patch_t patch;
 } settings_t;
 static settings_t set;
-#define SET_MAGIC 0xAAu
+#define SET_MAGIC 0xABu
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
-enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP };
+enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP, K_DIV };   /* K_DIV: a time, a note division while a clock is in */
 typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
@@ -549,9 +563,9 @@ static const page_t PAGES[NPAGE] = {
     {"SOURCES", draw_matrix, 1, {PA(src_wander, "WANDER", 127, K_NUM), PA(src_walk, "WALK", 127, K_NUM), PA(src_chaos, "CHAOS", 127, K_NUM), PA(src_tide, "TIDE", 127, K_NUM)}},
     {"TARGETS", draw_matrix, 1, {PA(to_tilt, "TILT", 127, K_NUM), PA(to_colour, "COLOUR", 127, K_NUM), PA(to_pitch, "PITCH", 127, K_NUM), PA(to_space, "SPACE", 127, K_NUM)}},
     {"SPACE",   draw_space,  0, {PA(rv_mix, "MIX", 127, K_NUM), PA(rv_size, "SIZE", 127, K_NUM), PA(rv_damp, "DAMP", 127, K_NUM), PA(rv_shim, "SHIMMR", 127, K_NUM)}},
-    {"DELAY",   draw_delay,  0, {PA(dly_time, "TIME", 127, K_NUM), PA(dly_fb, "FEEDBK", 127, K_NUM), PA(dly_mix, "MIX", 127, K_NUM), PA(dly_tape, "TAPE", 127, K_NUM)}},
+    {"DELAY",   draw_delay,  0, {PA(dly_time, "TIME", 127, K_DIV), PA(dly_fb, "FEEDBK", 127, K_NUM), PA(dly_mix, "MIX", 127, K_NUM), PA(dly_tape, "TAPE", 127, K_NUM)}},
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
-    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), NONE}},
+    {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), ST(key_sense, "KEYS", 1, K_ONOFF)}},
 };
 static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
@@ -656,7 +670,7 @@ static int preset_edited(void)              /* the sound differs from its preset
     return memcmp(&p, &set.patch, sizeof p) != 0;
 }
 
-static uint32_t clk_last, last_midi_ms;       /* (the MIDI clock's and the last message's time: below) */
+static uint32_t last_midi_ms;                 /* (the last message's time: below) */
 static uint8_t autopilot;                     /* (SEQ's autopilot: below) */
 static uint32_t load_now, wload_now;          /* the cores' load, % (the MIDI page) */
 /* ---- the screen: a header, a graphic the four knobs shift (240 x 124 at y 26), the four knobs under it in their
@@ -704,6 +718,7 @@ static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
     case K_MCHAN: if (!v) src = "OMNI"; break;
     case K_EXPR: if (!v) src = "AT"; break;
     case K_SEMI: n -= 12; if (n < 0) { s[i++] = '-'; n = -n; } else if (n > 0) s[i++] = '+'; break;
+    case K_DIV: if (fm1_ms - clk_last < 2000u) src = DIV_NAME[(v * NDIV) >> 7]; break;
     case K_BIP: n -= 64; if (n >= -4 && n <= 4) { src = "OFF"; break; } if (n < 0) { s[i++] = '-'; n = -n; } else s[i++] = '+'; break;
     default: break;
     }
@@ -807,6 +822,7 @@ static void draw_aurora(void)
     uint32_t c, x, y, kx, kx2, inc, lv = sound_level();
     int32_t th[3], step[3], off[3], ints, frz = (int32_t)freeze_now * 2, m = patch.move, v;
     int32_t pr = press, sh = bend_knob >> 2;      /* pressure lifts the sky and lights it; the bend slides it sideways, 64 px a semitone */
+    { uint32_t v; for (v = 0; v < NV; v++) if (voices[v].gate && voices[v].at > pr) pr = voices[v].at; }   /* (a key leant on counts) */
     au_glow += ((int32_t)lv - au_glow) >> 2;
     ints = 150 + ((au_glow * 106) >> 15);                                                  /* the light: 150 at rest, full while sounding (the FM-1's panel is dim: the mids must sit well above its black) */
     ints = ints - ((ints * patch.rv_mix) >> 9);                                            /* the haze dims it a little */
@@ -1181,7 +1197,7 @@ static void draw_space(void)
 /* DELAY: the repeats, spaced by TIME, dying by FEEDBACK, as loud as MIX; TAPE leans them over */
 static void draw_delay(void)
 {
-    int32_t sp = 14 + patch.dly_time * 44 / 127, h = 80, x = 12, base = 108, i, tape = patch.dly_tape;
+    int32_t sp = dly_synced ? 14 + (int32_t)(sync_dly * 44u / DLY_LEN) : 14 + patch.dly_time * 44 / 127, h = 80, x = 12, base = 108, i, tape = patch.dly_tape;
     uint32_t fb = (uint32_t)patch.dly_fb * 250u;
     cv_hline(4, 236, base + 1, C_RULE);
     cv_rect(x, base - h, 6, h, C_SILK);                      /* the note itself */
@@ -1266,7 +1282,7 @@ static void draw_page(void)
 }
 
 /* ---- MIDI clock: the delay's SYNC follows it */
-static uint32_t clk_n, clk_t0, clk_last, beat_ms = 500;
+static uint32_t clk_n, clk_t0, beat_ms = 500;
 static void clock_tick(void)
 {
     uint32_t now = fm1_ms;
@@ -1301,6 +1317,36 @@ static void auto_tick(void)                      /* every 100 ms */
 /* ---- the main loop */
 static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw, arp_was, arp_turned;
 static uint8_t held[27], sustain, sus_held[128 / 8];
+/* the keys' own pressure (Velo, after CS-1's key_lean): the lean on a held key, 0..127, counted from where the key RESTS, not
+ * where it landed (a key goes on settling after the note). The rest follows the driven reading down quickly for 250 ms, then
+ * creeps after it, and comes back up at once when the key is eased; the lean is the pill's resistance below its rest on a
+ * log scale: 0.04 octave is noise, 0.35 more is full (a soft and a firm press measured a fifth of an octave apart). */
+static uint32_t p_base8[27], p_t0[27], at_poll_ms, key_sense_applied = 0xFFu;
+static int32_t p_s[27];
+static uint8_t p_on[27], key_at_sent[27];
+static uint32_t key_lean(uint32_t k)
+{
+    uint32_t d, base, dead = 10, span = 90;
+    int32_t lean, x;
+    if (sn_key[k].st != SN_DOWN || sn_key[k].d <= SN_DBASE) { p_on[k] = 0; p_s[k] = 0; return 0; }
+    d = sn_key[k].d > SN_DBASE + 1u ? sn_key[k].d - SN_DBASE : 1u;
+    if (d > 1023u) d = 1023u;
+    if (!p_on[k]) { p_on[k] = 1; p_base8[k] = d << 8; p_t0[k] = fm1_ms; }
+    if ((d << 8) > p_base8[k]) p_base8[k] = d << 8;
+    else p_base8[k] -= ((p_base8[k] - (d << 8)) * (fm1_ms - p_t0[k] < 250u ? 28672u : 105u)) >> 16;
+    base = p_base8[k] >> 8; if (base > 1023u) base = 1023u; if (base < 1u) base = 1u;
+    lean = (int32_t)LOG2_Q8[base] - (int32_t)LOG2_Q8[d];
+    x = ((lean - (int32_t)dead) << 15) / (int32_t)span;
+    x = x < 0 ? 0 : x > 32767 ? 32767 : x;
+    p_s[k] += ((x - p_s[k]) * 10158) >> 15;
+    return (uint32_t)(p_s[k] * 127 + 16384) >> 15;
+}
+static void keys_apply(void)                        /* KEYS into the sensing module and the scan: Velo's DRIVE 2, its curve and lightest press as CS-1 settled on */
+{
+    sn_cfg.drive = 2; sn_cfg.d_curve = 70; sn_cfg.d_ceil = 897;
+    keys_sense_set(set.key_sense, 2);
+    key_sense_applied = set.key_sense;
+}
 static int32_t oct(void) { return (int32_t)set.oct_plus2 - 2; }
 static void changed(void) { dirty = 1; t_change = fm1_ms; }
 static void note_on(uint32_t note, uint32_t vel) { voice_on(note, vel); sus_held[note >> 3] &= (uint8_t)~(1u << (note & 7u)); }
@@ -1320,29 +1366,55 @@ static void app_init(void)
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
     if (bank_load(bank, sizeof bank)) memset(bank, 0, sizeof bank);
     if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NALL || set.scene_b >= NALL) {
-        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0; set.scene_b = 1;
+        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0; set.scene_b = 1; set.key_sense = 1;
         preset_build(0, &set.patch);
     }
+    sense_init(keys_analog_mask());
+    keys_apply();
     patch = set.patch;
     preset_build(set.scene_b, &scene_b);
     lcd_fill(0, 0, 240, 240, C_PANEL);
 }
+static void key_down(uint32_t k, uint32_t n, uint32_t vel)   /* a key pressed: its note, unless it was latched (then let go) */
+{
+    if (set.latch && (sus_held[n >> 3] >> (n & 7u) & 1u)) {
+        sus_held[n >> 3] &= (uint8_t)~(1u << (n & 7u)); voice_off(n); midi_send(0x80, n, 0); held[k] = 0xFF;
+    } else { held[k] = (uint8_t)n; key_at_sent[k] = 0; note_on(n, vel); midi_send(0x90, n, vel); }
+}
+static void key_up(uint32_t k)
+{
+    if (held[k] != 0xFF) { note_off(held[k]); midi_send(0x80, held[k], 0); }
+}
 static void app_loop(void)
 {
-    uint32_t keys, down, up, b, k, lit = 0, sounding;
+    uint32_t keys, down, up, b, k, lit = 0, sounding, live;
     uint32_t base = (uint32_t)(KEY0 + 12 * oct());
     uint8_t st, d1, d2;
     int32_t n;
     if (platform_screen_take()) page_drawn = page_filled = ~0u;   /* (the screen was lost: everything again) */
     keys = fm1_in.notes; down = keys & ~prev_keys; up = prev_keys & ~keys; prev_keys = keys;
+    if (set.key_sense != key_sense_applied) keys_apply();
+    live = keys_sense_live() && set.key_sense;        /* the keys' own velocity and pressure: the sensed keys' notes come from the sensing */
     for (k = 0; k < 27u; k++) {
-        if (down >> k & 1u) {
-            uint32_t n = base + k;
-            if (set.latch && (sus_held[n >> 3] >> (n & 7u) & 1u)) {           /* latched already: this press lets it go */
-                sus_held[n >> 3] &= (uint8_t)~(1u << (n & 7u)); voice_off(n); midi_send(0x80, n, 0); held[k] = 0xFF;
-            } else { held[k] = (uint8_t)n; note_on(n, 100); midi_send(0x90, n, 100); }
+        if (live && sense_is_analog(k)) continue;
+        if (down >> k & 1u) key_down(k, base + k, 100);
+        if (up >> k & 1u) key_up(k);
+    }
+    {   /* the sensed keys: landed with a velocity, lifted */
+        sense_ev_t e;
+        while (sense_take(&e)) {
+            if (!live || e.key >= 27u) continue;
+            if (e.type == EV_ON) key_down(e.key, base + e.key, e.vel ? e.vel : 1u);
+            else if (e.type == EV_OFF) key_up(e.key);
         }
-        if (up >> k & 1u && held[k] != 0xFF) { note_off(held[k]); midi_send(0x80, held[k], 0); }
+        if (live && fm1_ms - at_poll_ms >= 10u) {       /* the held keys' pressure, a hundred times a second: each its own note's swell */
+            at_poll_ms = fm1_ms;
+            for (k = 0; k < 27u; k++)
+                if (held[k] != 0xFF && sense_is_analog(k)) {
+                    uint32_t p = key_lean(k);
+                    if (p != key_at_sent[k]) { key_at_sent[k] = (uint8_t)p; voices_pressure(held[k], p); midi_send(0xA0, held[k], p); }
+                }
+        }
     }
     b = fm1_input_edges(&k);
     if (b & (1u << BTN_OCT_DOWN) && set.oct_plus2 > 0u) { set.oct_plus2--; changed(); }
@@ -1410,6 +1482,7 @@ static void app_loop(void)
         if (m == 0x90u && d2) note_on(d1, d2);
         else if (m == 0x80u || m == 0x90u) note_off(d1);
         else if (m == 0xD0u) press = d1;
+        else if (m == 0xA0u) voices_pressure(d1, d2);
         else if (m == 0xC0u) { set.preset = (uint8_t)(d1 % NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); page_drawn = ~0u; }
         else if (m == 0xE0u) bend256 = (((int32_t)d2 << 7 | d1) - 8192) >> 4;
         else if (m == 0xB0u) {
@@ -1427,9 +1500,16 @@ static void app_loop(void)
         uint32_t bars_q15 = (64u * EXP2N_Q15[f & 255u]) >> (f >> 8);        /* 64 x 2^(-rate / 32), Q15 */
         tide_period_ms = (4u * beat * bars_q15) >> 15;
     }
-    {   /* the delay's clock sync */
-        uint32_t d = patch.dly_sync & 7u;
-        if (d) { uint32_t t = beat_ms * 441u / 10u, cur = sync_dly, diff; t = t < 64u ? 64u : t > DLY_LEN - 1u ? DLY_LEN - 1u : t; diff = t > cur ? t - cur : cur - t; if (diff > cur >> 6) sync_dly = t; }
+    {   /* the delay's SYNC: with a clock in, TIME is a division of the beat; the time follows the tempo with a little hysteresis */
+        uint32_t on = fm1_ms - clk_last < 2000u;
+        if (on) {
+            const uint8_t *dv = DLY_DIV[((uint32_t)patch.dly_time * NDIV) >> 7];
+            uint32_t t = (beat_ms * 441u / 10u) * dv[0] / dv[1], cur = sync_dly, diff;
+            t = t < 64u ? 64u : t > DLY_LEN - 1u ? DLY_LEN - 1u : t;
+            diff = t > cur ? t - cur : cur - t;
+            if (diff > cur >> 6) sync_dly = t;
+        }
+        if (on != dly_synced) { dly_synced = (uint8_t)on; if (page == PG_DELAY) midi_redraw = 1; }
     }
     sounding = voices_sounding();
     for (k = 0; k < NV; k++)

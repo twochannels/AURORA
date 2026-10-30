@@ -16,7 +16,7 @@ sound module for a dawless rig, built for playing rather than sequencing.
   attractor) and TIDE (a slow sine over bars of the MIDI clock), into TILT, COLOUR, PITCH and SPACE through a fixed
   pattern; MOVE scales it all, RATE its speed, and DRIFT walks every partial besides.
 - **Width**: odd partials lean left, even right (WIDTH); mono-safe.
-- **Space**: a Dattorro plate with a shimmer at any interval, a tape delay synced to MIDI clock, and a master FILTER the
+- **Space**: a Dattorro plate with a shimmer at any interval, a tape delay (under a MIDI clock, TIME is a note division, 1/32 to 1/2), and a master FILTER the
   Circuit Tracks' way: one knob, centre off, left a high-pass sweeping up, right a low-pass sweeping down (CC 74).
 - **Freeze**: FREEZE holds the delay line and plays a cloud of grains off it (GRAIN their length, SPRAY how far back
   they pick, SHIFT their pitch, an octave either way), on into the plate: the texture stays after the
@@ -29,7 +29,8 @@ sound module for a dawless rig, built for playing rather than sequencing.
 - **Presets**: twenty, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB, ORGAN, MONOLITH, SLIDE,
   GRIT, RADIO and ABYSS to the struck (GLASS, MALLET, BELL, GAMELAN, PIANO, PLUCK): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
-  channel pressure or an expression CC swells the pad, and so does the SELECT encoder, with no controller;
+  the keys sense velocity and pressure of their own (Velo's sensing: VELO and SWELL with no controller; KEYS on the MIDI page);
+  channel pressure or an expression CC swells the pad, poly aftertouch one note, and so does the SELECT encoder;
   ALGORITHM on HOME bends the pitch and springs back; PLAY latches (a latched key pressed again lets go; the octave buttons move you to add notes elsewhere); REC held is FREEZE at full; SEQ is the
   autopilot, nine controls wandering slowly round where they are set; ARP morphs to a second scene over four
   seconds and back (held, PRESETS picks it), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in one of sixteen USER slots.

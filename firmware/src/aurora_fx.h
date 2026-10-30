@@ -88,7 +88,7 @@ static inline int32_t grains_step(int32_t *gl, int32_t *gr)   /* one frame of th
 }
 static void fx_delay(int32_t *st, uint32_t n)       /* st: L R L R ..., in place */
 {
-    uint32_t i, time = patch.dly_sync ? sync_dly : DLY_TIME[patch.dly_time], half = time >> 1;
+    uint32_t i, time = dly_synced ? sync_dly : DLY_TIME[patch.dly_time], half = time >> 1;
     dly_retime(time, patch.dly_ping ? half : time);
     int32_t fb = patch.dly_fb * 250, mix = patch.dly_mix * 258, damp = 32767 - patch.dly_damp * 230;
     int32_t tape = patch.dly_tape, drive = 32767 + tape * 258, undrive = (32767 << 15) / drive, m16;   /* TAPE's drive, and exactly its inverse after the clip: the saturation can only compress */

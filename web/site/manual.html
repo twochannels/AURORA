@@ -54,7 +54,7 @@
   <h2 id="start">First sounds</h2>
   <ol class="steps">
     <li><b>Install</b> AURORA from the <a href="install.html">install page</a>, or try it first in the <a href="emu/">emulator</a>. Switch the FM-1 on.</li>
-    <li><b>Play the keys.</b> AURORA is a pad: hold a note or a chord and give it a few seconds. It swells in, keeps moving, and the plate and delay carry on after you let go.</li>
+    <li><b>Play the keys.</b> AURORA is a pad: hold a note or a chord and give it a few seconds. The keys feel how hard you strike and how hard you lean on them. It swells in, keeps moving, and the plate and delay carry on after you let go.</li>
     <li><b>OCT&minus; and OCT+</b> move the keys an octave at a time, two octaves either way. Low chords are where AURORA lives.</li>
     <li><b>Turn PRESETS</b> to hear the twenty sounds, from the slow and vast at the start to the short and struck at the end. The name is on the screen.</li>
     <li><b>MASTER</b> is the output volume. VOLUME on the MIDI page (GLO, third knob) is the sound's own level, kept with it, for matching one preset to another.</li>
@@ -80,7 +80,8 @@
   <div class="panel">
     <div><b>PLAY</b><span>latch. Keys stay held after you let go, so you can play a drone with no hands. Press a latched key again to let it go. Press PLAY again to release everything.</span></div>
     <div><b>OCT&minus; OCT+</b><span>with latch on, the key lights show what is latched in this octave. Change octave and add notes from elsewhere.</span></div>
-    <div><b>SELECT</b><span>pressure. Turn it up and the pad swells open, brighter and louder, as far as SWELL on the TOUCH page allows. Turn it back down to let it rest.</span></div>
+    <div><b>Lean on a key</b><span>pressure. Press a held key harder and its note swells open, brighter and louder, as far as SWELL on the TOUCH page allows. Ease off and it rests.</span></div>
+    <div><b>SELECT</b><span>the same swell for every note at once, with no hands on the keys.</span></div>
     <div><b>ALGORITHM</b><span>on HOME, a pitch bend that springs back to centre when you stop turning.</span></div>
     <div><b>REC</b><span>held, freezes the moment: the delay line holds, grains play off it, and you can let go of the keys and play over it. Release REC and it fades away.</span></div>
     <div><b>OCT&minus; + OCT+</b><span>silence everything: every note, latched or sustained, let go at once.</span></div>
@@ -178,8 +179,8 @@
       <p>How the sound answers your playing.</p>
       <table class="ctl">
         <tr><td><span class="kn k1">BLOOM</span></td><td>staggers the overtones' entry, so a chord opens like a flower.</td></tr>
-        <tr><td><span class="kn k2">SWELL</span></td><td>how far pressure (SELECT, aftertouch or the expression CC) opens the pad.</td></tr>
-        <tr><td><span class="kn k3">VELO</span></td><td>how much velocity matters. Zero plays every note the same.</td></tr>
+        <tr><td><span class="kn k2">SWELL</span></td><td>how far pressure opens the pad: leaning on a key, SELECT, aftertouch or the expression CC.</td></tr>
+        <tr><td><span class="kn k3">VELO</span></td><td>how much a hard or soft strike matters, on the keys or over MIDI. Zero plays every note the same.</td></tr>
         <tr><td><span class="kn k4">GLIDE</span></td><td>slides each note in from the last one.</td></tr>
       </table>
     </div>
@@ -247,7 +248,7 @@
       <h3>DELAY</h3>
       <p>A tape delay.</p>
       <table class="ctl">
-        <tr><td><span class="kn k1">TIME</span></td><td>the gap between repeats.</td></tr>
+        <tr><td><span class="kn k1">TIME</span></td><td>the gap between repeats. With a MIDI clock in it becomes a note division, 1/32 to 1/2, and the repeats follow the tempo.</td></tr>
         <tr><td><span class="kn k2">FEEDBK</span></td><td>how many repeats.</td></tr>
         <tr><td><span class="kn k3">MIX</span></td><td>how much delay.</td></tr>
         <tr><td><span class="kn k4">TAPE</span></td><td>the tape's warmth and wobble, more with every repeat.</td></tr>
@@ -277,7 +278,8 @@
       <table class="ctl">
         <tr><td><span class="kn k1">CHAN</span></td><td>the MIDI channel, or OMNI for all of them.</td></tr>
         <tr><td><span class="kn k2">EXPR</span></td><td>what counts as pressure: AT for channel aftertouch, or a CC number. CC 1, the mod wheel, to begin with.</td></tr>
-        <tr><td><span class="kn k3">VOLUME</span></td><td>the output level. Also CC 7.</td></tr>
+        <tr><td><span class="kn k3">VOLUME</span></td><td>the sound's own level. Also CC 7.</td></tr>
+        <tr><td><span class="kn k4">KEYS</span></td><td>the keys' own velocity and pressure, ON. OFF plays every key the same, as a plain switch.</td></tr>
       </table>
       <p>The version is top right.</p>
     </div>
@@ -313,11 +315,11 @@
     <tr><th>CC 80..87</th><td>the eight macros, in the Circuit Tracks' order: <span class="kn k1">MOVE</span> <span class="kn k2">SPACE</span> <span class="kn k3">AIR</span> <span class="kn k4">TILT</span> <span class="kn k1">WIDTH</span> <span class="kn k2">DRIFT</span> <span class="kn k3">FREEZE</span> <span class="kn k4">BLOOM</span></td></tr>
     <tr><th>CC 74</th><td>the master filter, high-pass left of centre, low-pass right</td></tr>
     <tr><th>CC 7</th><td>volume</td></tr>
-    <tr><th>Channel pressure, or the EXPR CC</th><td>swells the pad open, as far as SWELL allows</td></tr>
+    <tr><th>Channel pressure, or the EXPR CC</th><td>swells the pad open, as far as SWELL allows; polyphonic aftertouch swells one note</td></tr>
     <tr><th>CC 64</th><td>sustain</td></tr>
     <tr><th>Pitch bend</th><td>the pitch, two semitones</td></tr>
     <tr><th>Program change</th><td>a preset: 0 to 19 the factory sounds, 20 to 35 the USER slots</td></tr>
-    <tr><th>Clock, start</th><td>the tide counts its bars from the clock, and starts over on start</td></tr>
+    <tr><th>Clock, start</th><td>the delay's TIME becomes a note division and follows the tempo; the tide counts its bars, and starts over on start</td></tr>
     <tr><th>USB audio</th><td>the FM-1 is also an audio interface: a computer can record AURORA's output over the same cable, at 44.1 or 48 kHz</td></tr>
   </table>
   <p>The macros and the filter set the same controls the knobs do, so a sequencer can play the HOME page.</p>
