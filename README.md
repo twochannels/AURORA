@@ -26,7 +26,7 @@ sound module for a dawless rig, built for playing rather than sequencing.
   moves it (EDIT, ENV, LFO and FX step through their groups): TONE is the spectrum, TONE 2 the partials' places, SHAPE the ADSR, TOUCH the bloom, swell and velocity, SWARM the saws under their filter, AIR the wind, MOVE the
   sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
   line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with FILTER, TILT,
-  AIR and MOVE under the knobs for playing.
+  AIR and METAL under the knobs for playing.
 - **Presets**: twenty-four, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB, ORGAN, MONOLITH, SLIDE,
   GRIT, RADIO and ABYSS to the struck (GLASS, MALLET, BELL, GAMELAN, PIANO, PLUCK) and the horns (BRAAM, FOGHORN, WARHORN, TITAN): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
