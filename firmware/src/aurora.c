@@ -30,7 +30,7 @@
  *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
  *                SELECT is the pressure
  *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
- *   pages        HOME (the aurora: the sound drawn; FILTER TILT AIR MOVE under the knobs), EDIT: TONE, TONE 2, SWARM, AIR; ENV: SHAPE TOUCH;
+ *   pages        HOME (the aurora: the sound drawn; FILTER TILT AIR MOVE under the knobs), EDIT: TONE, TONE 2, METAL, SWARM, AIR; ENV: SHAPE TOUCH;
  *                LFO: MOVE SOURCES TARGETS; FX: SPACE DELAY FREEZE; GLO: MIDI. Every page is a graphic the four knobs
  *                shift, each part in the colour of its knob. The panel is kept 2 s after the last change.
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. tests/host.c runs this file
@@ -62,14 +62,15 @@ typedef struct {
     uint8_t freeze, frz_grain, frz_spray, frz_shift;              /* FREEZE: the delay line held, grains over it (aurora_fx.h) */
     uint8_t volume;
     uint8_t stretch, sub, tune, sat, filter, glide;               /* TONE 2: the partials stretched apart, a sub-octave, a transpose (+-12), a drive; the master filter (HP .. LP); glide */
+    uint8_t ring, ratio;                                         /* METAL: the pad ring-modulated by a sine at RATIO x the pitch (0.5 .. 8, 1 at 32), RING how much */
 } patch_t;
 static patch_t patch;
 /* the fields' names, in the struct's order: the emulator's "Copy sound" and any dump name them by these */
 static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,"
     "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
     "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,"
-    "stretch,sub,tune,sat,filter,glide";
-typedef char patch_fields_count_check[sizeof(patch_t) == 54u ? 1 : -1];   /* a field added: add its name above, and bump this */
+    "stretch,sub,tune,sat,filter,glide,ring,ratio";
+typedef char patch_fields_count_check[sizeof(patch_t) == 56u ? 1 : -1];   /* a field added: add its name above, and bump this */
 static const patch_t BASE_PATCH = {      /* the presets build on this; the boot sound is preset 0, AURORA, Ben's */
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
@@ -81,6 +82,7 @@ static const patch_t BASE_PATCH = {      /* the presets build on this; the boot 
     .freeze = 0, .frz_grain = 80, .frz_spray = 70, .frz_shift = 12,
     .volume = 100,
     .stretch = 0, .sub = 0, .tune = 12, .sat = 0, .filter = 64, .glide = 0,
+    .ring = 0, .ratio = 32,
 };
 static volatile uint32_t sync_dly;                 /* the delay's time from the MIDI clock, frames (the main loop's) */
 static volatile uint8_t dly_synced;                /* a clock is in: the delay runs at sync_dly, a note division of the beat (TIME picks it) */
@@ -101,6 +103,8 @@ typedef struct {
     volatile uint8_t active;
     uint32_t ph[NP], ph2[NPAIR];                   /* each partial's phase, and the pairs' beat phases */
     uint32_t sph[NSW];                             /* the swarm's phases */
+    uint32_t rph;                                  /* the ring modulator's phase */
+    int32_t ramp;                                  /* RING's amount last block (Q15), ramped a block */
     int32_t sdrift[NSW], sdtarget[NSW];            /* each saw's own pitch wander (random LFOs, DRIFT) */
     int32_t sic[2][2];                             /* the swarm's two filters' states (left-leaning, right-leaning) */
     int32_t samp;                                  /* the swarm's level last block (Q15), ramped a block */
@@ -214,7 +218,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         if (!w->rng) w->rng = 0x9E3779B9u * (uint32_t)(w - voices + 1);
         if (!w->env) {                             /* from silence: Schroeder phases, so the harmonics never all peak together */
             for (k = 0; k < NP; k++) w->ph[k] = (uint32_t)(k * (k + 1u)) * 178956970u;   /* pi k (k + 1) / NP */
-            w->subph = 0; w->subamp = 0;
+            w->subph = 0; w->subamp = 0; w->rph = 0; w->ramp = 0;
             for (k = 0; k < NPAIR; k++) w->ph2[k] = 0;                 /* the beats start at full */
             for (k = 0; k < NSW; k++) w->sph[k] = k * 858993459u + (k * k) * 300000000u;   /* the saws spread round the cycle */
             w->sic[0][0] = w->sic[0][1] = w->sic[1][0] = w->sic[1][1] = 0;
@@ -316,6 +320,18 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
             uint32_t ph = w->subph, inc = inc0 >> 1;
             for (i = 0; i < HALF_FRAMES; i++) { odd[i] += mulq15(sine_r(ph), a >> 8); a += d; ph += inc; }
             w->subph = ph; w->subamp = t;
+        }
+        if (patch.ring || w->ramp) {               /* RING: the pad (and its sub) times a sine at RATIO x the pitch, mixed in by RING:
+                                                    * the gain 1 - a + a sin runs from 1 to 1 - 2a, so at full it is the ring product alone
+                                                    * and every partial becomes its sum and difference with the modulator */
+            int32_t a = w->ramp << 8, t = (int32_t)patch.ring * 258, d = t - w->ramp;
+            uint32_t ph = w->rph, inc = (inc0 >> 8) * (exp2_q15((uint32_t)patch.ratio * 32u) >> 8);   /* 2^(RATIO / 32 - 1): 0.5 .. 7.9 x, Q8 */
+            for (i = 0; i < HALF_FRAMES; i++) {   /* the gain in Q14: the ring product x 1.414, so the level at full RING matches dry (a sine's rms) */
+                int32_t a14 = a >> 9, g = 16384 - a14 + mulq15(a14, (sine_r(ph) * 23170) >> 14);
+                odd[i] = (odd[i] * g) >> 14; even[i] = (even[i] * g) >> 14;
+                a += d; ph += inc;
+            }
+            w->rph = ph; w->ramp = t;
         }
         /* the swarm: NSW saws a little apart (SPREAD, up to +-50 cents, each wandering by DRIFT), through a low-pass
          * that tracks the note, opened by CUTOFF, darkened by TILT, bent by the movement's colour and pressure;
@@ -542,19 +558,20 @@ typedef struct {
 static settings_t set;
 #define SET_MAGIC 0xABu
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
-enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP, K_DIV };   /* K_DIV: a time, a note division while a clock is in */
+enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP, K_DIV, K_RATIO };   /* K_DIV: a time, a note division while a clock is in */
 typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
 #define NONE {0, 0, 0, 0, 0}
-enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_METAL, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
 typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
-static void draw_aurora(void), draw_tone(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
+static void draw_aurora(void), draw_tone(void), draw_metal(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
             draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
     {"AURORA",  draw_aurora, 1, {PA(filter, "FILTER", 127, K_BIP), PA(tilt, "TILT", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(move, "MOVE", 127, K_NUM)}},
     {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
     {"TONE 2",  draw_tone2,  0, {PA(stretch, "STRETCH", 127, K_NUM), PA(sub, "SUB", 127, K_NUM), PA(tune, "TUNE", 24, K_SEMI), PA(sat, "DRIVE", 127, K_NUM)}},
+    {"METAL",   draw_metal,  0, {PA(ring, "RING", 127, K_NUM), PA(ratio, "RATIO", 127, K_RATIO), NONE, NONE}},
     {"SWARM",   draw_swarm,  0, {PA(sw_level, "LEVEL", 127, K_NUM), PA(sw_spread, "SPREAD", 127, K_NUM), PA(sw_cut, "CUTOFF", 127, K_NUM), PA(sw_res, "RESO", 127, K_NUM)}},
     {"AIR",     draw_air,    1, {PA(air, "AIR", 127, K_NUM), PA(air_tone, "TONE", 127, K_NUM), PA(air_tex, "TEXTUR", 127, K_NUM), PA(air_breath, "BREATH", 127, K_NUM)}},
     {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(decay, "DECAY", 127, K_NUM), PA(sustain, "SUSTAIN", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM)}},
@@ -567,7 +584,7 @@ static const page_t PAGES[NPAGE] = {
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
     {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), ST(key_sense, "KEYS", 1, K_ONOFF)}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_TONE, 4}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -627,7 +644,7 @@ static const preset_t PRESETS[] = {
 /* the user bank: sixteen slots after the twelve, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
 #define NUSER 16u
 #define NALL (NPRESET + NUSER)
-#define USLOT_MAGIC 0x5Au
+#define USLOT_MAGIC 0x5Bu
 typedef struct { uint8_t magic; patch_t p; } uslot_t;
 static uslot_t bank[NUSER];
 static char uname[8];
@@ -719,6 +736,9 @@ static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
     case K_EXPR: if (!v) src = "AT"; break;
     case K_SEMI: n -= 12; if (n < 0) { s[i++] = '-'; n = -n; } else if (n > 0) s[i++] = '+'; break;
     case K_DIV: if (fm1_ms - clk_last < 2000u) src = DIV_NAME[(v * NDIV) >> 7]; break;
+    case K_RATIO: {   /* 2^(v / 32 - 1) to two places: 0.50 .. 7.92 */
+        uint32_t r = (exp2_q15(v * 32u) * 100u) >> 16;
+        s[i++] = (char)('0' + r / 100u); s[i++] = '.'; s[i++] = (char)('0' + r / 10u % 10u); s[i++] = (char)('0' + r % 10u); s[i] = 0; return; }
     case K_BIP: n -= 64; if (n >= -4 && n <= 4) { src = "OFF"; break; } if (n < 0) { s[i++] = '-'; n = -n; } else s[i++] = '+'; break;
     default: break;
     }
@@ -986,6 +1006,31 @@ static void draw_tone2(void)
             cv_pset(8 + x, 40 - (y * 34 >> 15), KC[3]);
         }
     }
+}
+
+/* METAL: the partials on TONE 2's axis, and where RING sends each: its sum and difference with the modulator (blue, at RATIO) */
+static void draw_metal(void)
+{
+    int32_t k, base = 96, tilt16 = patch.tilt * 16, spread = (int32_t)patch.spread - 64, ring = patch.ring * 258, sh = ((int32_t)patch.tune - 12) * 34 / 12;
+    uint32_t S = (uint32_t)patch.stretch * patch.stretch * 4u / 5u, ratio = exp2_q15((uint32_t)patch.ratio * 32u) << 1;   /* Q16 */
+    cv_hline(4, 236, base + 1, C_RULE);
+    for (k = 0; k < (int32_t)NP; k++) {
+        uint32_t r = ((uint32_t)(k + 1) << 16) + ((((uint32_t)(k + 1) << 16) >> 16) * ((S * (uint32_t)k) >> 1));   /* (k + 1)(1 + S k), Q16 */
+        int32_t h = (shape_level((uint32_t)k, tilt16, spread, patch.bright) * 2 * 48) >> 15, hs = (h * ring) >> 16, hk = h - hs;
+        int32_t x = 24 + sh + log2_q8(r) * 34 / 256, xu = 24 + sh + log2_q8(r + ratio) * 34 / 256;
+        uint32_t dr = r > ratio ? r - ratio : ratio - r;
+        if (x < 236) cv_vline(x, base - (hk < 1 ? 1 : hk), base, ring ? dim(C_SILK, 160) : KC[0]);
+        if (hs > 0) {
+            if (xu < 236) cv_vline(xu, base - hs, base, KC[0]);
+            if (dr > 1024u) { int32_t xd = 24 + sh + log2_q8(dr) * 34 / 256; if (xd >= 4 && xd < 236) cv_vline(xd, base - hs, base, KC[0]); }
+        }
+    }
+    {   /* the modulator: a marker at RATIO x the pitch */
+        int32_t x = 24 + sh + log2_q8(ratio) * 34 / 256;
+        if (x >= 4 && x < 236) { cv_vline(x, base - 58, base, KC[1]); cv_dot(x, base - 60, 2, KC[1]); }
+    }
+    cv_text(4, 100, &FONT_S, "1", C_LEG); cv_text(214, 100, &FONT_S, "6", C_LEG);
+    cv_text(150, 6, &FONT_S, "RING", patch.ring ? KC[0] : C_LEG);
 }
 
 /* SHAPE: the envelope. A linear attack, an exponential decay to the sustain, held, an exponential release; the

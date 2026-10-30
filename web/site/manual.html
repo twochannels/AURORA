@@ -91,7 +91,7 @@
   <p>Every page is a picture of one part of the sound, with four controls under it. Each part of the picture is drawn in the colour of the knob that moves it: <span class="kn k1">green</span> for knob 1, <span class="kn k2">blue</span> for knob 2, <span class="kn k3">violet</span> for knob 3, <span class="kn k4">amber</span> for knob 4.</p>
   <div class="panel">
     <div><b>HOME</b><span>the sky</span></div>
-    <div><b>EDIT</b><span>the sound: TONE, TONE 2, SWARM, AIR. Press again for the next page.</span></div>
+    <div><b>EDIT</b><span>the sound: TONE, TONE 2, METAL, SWARM, AIR. Press again for the next page.</span></div>
     <div><b>ENV</b><span>the envelope: SHAPE, then TOUCH</span></div>
     <div><b>LFO</b><span>the movement: MOVE, SOURCES, TARGETS</span></div>
     <div><b>FX</b><span>the space: SPACE, DELAY, FREEZE</span></div>
@@ -128,6 +128,17 @@
         <tr><td><span class="kn k2">SUB</span></td><td>a sine an octave below every note.</td></tr>
         <tr><td><span class="kn k3">TUNE</span></td><td>transposes, a semitone at a time, an octave either way.</td></tr>
         <tr><td><span class="kn k4">DRIVE</span></td><td>a soft overdrive on the whole pad, from clean to thick.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/metal.png" width="160" height="160" alt="METAL">
+    <div>
+      <h3>METAL</h3>
+      <p>The pad multiplied by a second sine: every overtone becomes two, above and below it. Where TONE 2 bends the overtones, this shatters them.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">RING</span></td><td>how much. At full only the shattered sound is left.</td></tr>
+        <tr><td><span class="kn k2">RATIO</span></td><td>the second sine's pitch as a multiple of the note. Whole numbers (1.00, 2.00, 4.00) stay in tune and thicken; the places between, like 1.41 or 2.76, are bells, gongs and metal.</td></tr>
       </table>
     </div>
   </div>

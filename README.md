@@ -4,7 +4,8 @@ An ambient instrument for the M-VAVE FM-1: big, wide sounds that keep moving on 
 sound module for a dawless rig, built for playing rather than sequencing.
 
 - **The pad**: eight voices of twelve sine partials with an ADSR envelope and velocity (VELO sets how much), a glide, and
-  on TONE 2 a STRETCH of the partials from string to bell, a SUB an octave under, a TUNE of +-12 and a DRIVE. TILT sets how fast the partials fall off, SPREAD balances odd
+  on TONE 2 a STRETCH of the partials from string to bell, a SUB an octave under, a TUNE of +-12 and a DRIVE; on METAL a
+  ring modulator (RING, RATIO x the pitch from 0.5 to 8) that splits every partial into its sum and difference tones. TILT sets how fast the partials fall off, SPREAD balances odd
   against even from hollow to full, BRIGHT is a ceiling they fade under, BLOOM staggers their entry, DETUNE spreads
   each low partial into a pair so the pad shimmers and a chord's beats are smeared rather than bare.
 - **The swarm**: under the pad, five saws a little apart (SPREAD) through a low-pass (CUTOFF, RESO) that tracks the
