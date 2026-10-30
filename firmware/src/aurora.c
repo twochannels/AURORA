@@ -446,16 +446,18 @@ static void app_audio(int32_t *out, uint32_t n)
         for (i = 0; i < NV; i++) n += voices[i].env >> 9;
         target = n > 32767 ? 32767 * 32768 / (32768 + (n - 32767) / 6) : 32767;
         poly_gain += (target - poly_gain) >> 6;
-        vol = mulq15(vol, poly_gain);
     }
-    for (i = 0; i < HALF_FRAMES; i++) {
+    for (i = 0; i < HALF_FRAMES; i++) {            /* (the chord gain before the drive, so a chord is no grittier than a note; VOLUME after it, so it is a level and not less drive) */
         int32_t l = g_l[0][i] + (submitted ? g_l[1][i] : 0), r = g_r[0][i] + (submitted ? g_r[1][i] : 0);
-        g_st[2u * i] = mulq15(soft_knee(l, 20000), vol);
-        g_st[2u * i + 1u] = mulq15(soft_knee(r, 20000), vol);
+        g_st[2u * i] = mulq15(soft_knee(l, 20000), poly_gain);
+        g_st[2u * i + 1u] = mulq15(soft_knee(r, 20000), poly_gain);
     }
     if (patch.sat) {                               /* DRIVE: the pad into the clip, the level matched, so it warms, compresses, then grits */
         int32_t d8 = 256 + (int32_t)patch.sat * patch.sat, k = (9681 << 15) / softclip((10000 * d8) >> 8);   /* x1 .. x64, squared so the first half warms and the second grits; 9681 = softclip(10000): x1 at DRIVE 0, the level matched at a -10 dBFS peak, about the pad's */
+        k = mulq15(k, vol);
         for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(softclip((g_st[i] * d8) >> 8), k);
+    } else {
+        for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(g_st[i], vol);
     }
     air_block(g_st, HALF_FRAMES);
     fx_delay(g_st, HALF_FRAMES);
@@ -646,12 +648,12 @@ static const preset_t PRESETS[] = {
     {"FOGHORN", {D(tune, 0), D(sub, 127), D(sat, 50), D(ring, 100), D(ratio, 1), D(tilt, 90), D(bright, 60), D(detune, 40), D(attack, 75), D(sustain, 127), D(release, 100), D(bloom, 70),
                  D(sw_level, 40), D(sw_cut, 30), D(sw_res, 20), D(sw_spread, 40), D(air, 30), D(air_tone, 30), D(air_tex, 20), D(air_breath, 100), D(move, 50), D(rate, 15), D(width, 90),
                  D(rv_mix, 90), D(rv_size, 127), D(rv_damp, 60), D(velo, 20), END}},
-    {"WARHORN", {D(ring, 100), D(ratio, 51), D(sat, 100), D(sub, 40), D(tilt, 35), D(bright, 127), D(detune, 50), D(attack, 45), D(sustain, 127), D(release, 80), D(bloom, 30), D(glide, 40),
-                 D(sw_level, 90), D(sw_cut, 70), D(sw_res, 50), D(sw_spread, 80), D(dly_mix, 35), D(dly_fb, 50), D(dly_time, 80), D(dly_tape, 60), D(rv_mix, 70), D(rv_size, 100), D(width, 120),
-                 D(move, 50), D(drift, 50), D(velo, 40), D(volume, 90), END}},
+    {"WARHORN", {D(ring, 100), D(ratio, 51), D(sat, 85), D(sub, 40), D(tilt, 35), D(bright, 127), D(detune, 50), D(attack, 45), D(sustain, 127), D(release, 80), D(bloom, 30), D(glide, 40),
+                 D(sw_level, 75), D(sw_cut, 70), D(sw_res, 50), D(sw_spread, 80), D(dly_mix, 35), D(dly_fb, 50), D(dly_time, 80), D(dly_tape, 60), D(rv_mix, 70), D(rv_size, 100), D(width, 120),
+                 D(move, 50), D(drift, 50), D(velo, 40), D(volume, 76), END}},
     {"TITAN", {D(tune, 0), D(ring, 110), D(ratio, 79), D(sat, 110), D(sub, 80), D(tilt, 50), D(bright, 127), D(stretch, 20), D(detune, 30), D(attack, 60), D(sustain, 127), D(release, 95), D(bloom, 40),
                D(sw_level, 60), D(sw_cut, 40), D(sw_res, 60), D(air, 40), D(air_tex, 80), D(air_tone, 50), D(air_breath, 60), D(dly_mix, 40), D(dly_fb, 60), D(dly_time, 90), D(dly_tape, 90),
-               D(rv_mix, 80), D(rv_size, 115), D(rv_shim, 40), D(width, 127), D(move, 60), D(rate, 25), D(drift, 60), D(velo, 30), D(volume, 90), END}},
+               D(rv_mix, 80), D(rv_size, 115), D(rv_shim, 40), D(width, 127), D(move, 60), D(rate, 25), D(drift, 60), D(velo, 30), D(volume, 78), END}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 /* the user bank: sixteen slots after the factory ones, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
