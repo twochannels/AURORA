@@ -27,8 +27,8 @@ sound module for a dawless rig, built for playing rather than sequencing.
   sources' traces, SOURCES and TARGETS the matrix, SPACE the tail, DELAY the repeats, FREEZE the grains on the
   line. HOME is the aurora itself, bent by the movement's sources and lit by what is sounding, with FILTER, TILT,
   AIR and MOVE under the knobs for playing.
-- **Presets**: twenty, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB, ORGAN, MONOLITH, SLIDE,
-  GRIT, RADIO and ABYSS to the struck (GLASS, MALLET, BELL, GAMELAN, PIANO, PLUCK): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
+- **Presets**: twenty-four, from the slow and vast (DEEP, TIDE, CHOIR, ICE, STORM) through SWARM, SUB, ORGAN, MONOLITH, SLIDE,
+  GRIT, RADIO and ABYSS to the struck (GLASS, MALLET, BELL, GAMELAN, PIANO, PLUCK) and the horns (BRAAM, FOGHORN, WARHORN, TITAN): the PRESETS encoder, or a program change. HOME shows the name, starred once edited.
 - **Expression**: CC 80..87 (the Circuit Tracks' macros) are MOVE, SPACE, AIR, TILT, WIDTH, DRIFT, FREEZE, BLOOM;
   the keys sense velocity and pressure of their own (Velo's sensing: VELO and SWELL with no controller; KEYS on the MIDI page);
   channel pressure or an expression CC swells the pad, poly aftertouch one note, and so does the SELECT encoder;

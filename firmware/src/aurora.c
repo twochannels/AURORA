@@ -591,7 +591,7 @@ static const char *const N_ONOFF[2] = {"OFF", "ON"};
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
     {"MOVE", offsetof(patch_t, move)}, {"SPACE", offsetof(patch_t, rv_mix)}, {"AIR", offsetof(patch_t, air)}, {"TILT", offsetof(patch_t, tilt)},
     {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, freeze)}, {"BLOOM", offsetof(patch_t, bloom)}};
-/* ---- the presets: each a name and what it changes from the default sound (the PRESETS encoder, or a program change). From the slow and vast to the short and struck. */
+/* ---- the presets: each a name and what it changes from the default sound (the PRESETS encoder, or a program change). From the slow and vast to the short and struck, then the horns. */
 typedef struct { uint8_t off, v; } pdelta_t;
 #define D(f, v) {(uint8_t)offsetof(patch_t, f), v}
 #define END {255, 0}
@@ -639,9 +639,22 @@ static const preset_t PRESETS[] = {
                D(move, 40), D(rate, 15), D(rv_mix, 60), D(rv_size, 120), D(width, 40), D(air, 0), D(velo, 20), END}},
     {"PLUCK", {D(attack, 0), D(decay, 25), D(sustain, 0), D(release, 15), D(tilt, 60), D(spread, 40), D(bright, 127), D(detune, 10), D(bloom, 0), D(sw_level, 70), D(sw_cut, 110), D(sw_res, 50), D(sw_spread, 30),
                D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), D(volume, 127), END}},
+    /* the horns: the film-trailer braam, built on RING. A ratio a hair off 1 throbs (the difference tone is a slow beat), 0.5 growls an
+     * octave under, 1.5 is a half-integer series (brass, snarling), 2.8 is metal; a slow attack and BLOOM open it "bwaa", DRIVE grits it */
+    {"BRAAM", {D(tune, 0), D(sub, 90), D(sat, 80), D(ring, 80), D(ratio, 33), D(tilt, 45), D(bright, 110), D(detune, 70), D(attack, 55), D(sustain, 127), D(release, 85), D(bloom, 50),
+               D(sw_level, 70), D(sw_spread, 60), D(sw_cut, 50), D(sw_res, 30), D(move, 40), D(rate, 20), D(drift, 40), D(width, 110), D(rv_mix, 85), D(rv_size, 120), D(rv_damp, 40), D(velo, 30), END}},
+    {"FOGHORN", {D(tune, 0), D(sub, 127), D(sat, 50), D(ring, 100), D(ratio, 1), D(tilt, 90), D(bright, 60), D(detune, 40), D(attack, 75), D(sustain, 127), D(release, 100), D(bloom, 70),
+                 D(sw_level, 40), D(sw_cut, 30), D(sw_res, 20), D(sw_spread, 40), D(air, 30), D(air_tone, 30), D(air_tex, 20), D(air_breath, 100), D(move, 50), D(rate, 15), D(width, 90),
+                 D(rv_mix, 90), D(rv_size, 127), D(rv_damp, 60), D(velo, 20), END}},
+    {"WARHORN", {D(ring, 100), D(ratio, 51), D(sat, 100), D(sub, 40), D(tilt, 35), D(bright, 127), D(detune, 50), D(attack, 45), D(sustain, 127), D(release, 80), D(bloom, 30), D(glide, 40),
+                 D(sw_level, 90), D(sw_cut, 70), D(sw_res, 50), D(sw_spread, 80), D(dly_mix, 35), D(dly_fb, 50), D(dly_time, 80), D(dly_tape, 60), D(rv_mix, 70), D(rv_size, 100), D(width, 120),
+                 D(move, 50), D(drift, 50), D(velo, 40), D(volume, 90), END}},
+    {"TITAN", {D(tune, 0), D(ring, 110), D(ratio, 79), D(sat, 110), D(sub, 80), D(tilt, 50), D(bright, 127), D(stretch, 20), D(detune, 30), D(attack, 60), D(sustain, 127), D(release, 95), D(bloom, 40),
+               D(sw_level, 60), D(sw_cut, 40), D(sw_res, 60), D(air, 40), D(air_tex, 80), D(air_tone, 50), D(air_breath, 60), D(dly_mix, 40), D(dly_fb, 60), D(dly_time, 90), D(dly_tape, 90),
+               D(rv_mix, 80), D(rv_size, 115), D(rv_shim, 40), D(width, 127), D(move, 60), D(rate, 25), D(drift, 60), D(velo, 30), D(volume, 90), END}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
-/* the user bank: sixteen slots after the twelve, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
+/* the user bank: sixteen slots after the factory ones, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
 #define NUSER 16u
 #define NALL (NPRESET + NUSER)
 #define USLOT_MAGIC 0x5Bu
