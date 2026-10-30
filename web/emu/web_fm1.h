@@ -14,6 +14,7 @@ static void midi_send(uint32_t st, uint32_t d1, uint32_t d2)
     if (mo_w - mo_r >= 64u) return;
     mo_ring[mo_w++ % 64u] = (st & 0xFFu) | (d1 & 0x7Fu) << 8 | (d2 & 0x7Fu) << 16 | 0x1000000u;
 }
+static void midi_sysex(const uint8_t *d, uint32_t n) { (void)d; (void)n; }   /* the sound dump: the emulator has Copy sound instead */
 
 /* output ring, stereo float, filled by web_ms, drained by web_render */
 #define RING 4096u

@@ -14,6 +14,7 @@
 #include <stdlib.h>
 
 static void midi_send(uint32_t st, uint32_t d1, uint32_t d2) { printf("%6u ms  MIDI out %02X %u %u\n", fm1_ms, st, d1, d2); }
+static void midi_sysex(const uint8_t *d, uint32_t n) { uint32_t i; printf("%6u ms  SysEx out", fm1_ms); for (i = 0; i < n; i++) printf(" %02X", d[i]); printf("\n"); }
 
 /* the script: at t ms, keys down (bit k = key k, 0 = F3), a button edge, a MIDI message. A script file (the second
  * argument) replaces it, a line each: "T keys MASK" (hex or decimal), "T btn ID", "T midi ST D1 D2", "T enc ID N",

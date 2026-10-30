@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AURORA: share a sound</title>
+<meta name="description" content="Catch a sound sent from the FM-1 over USB MIDI and turn it into text to keep, share or send in as a preset.">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="img/favicon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+  .catch { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 1rem 1.1rem; margin: 1rem 0; }
+  .catch .state { font: 600 1rem "Barlow Semi Condensed", sans-serif; letter-spacing: .08em; color: var(--k1); }
+  .catch .state.wait { color: var(--muted); }
+  textarea { width: 100%; box-sizing: border-box; min-height: 7em; margin: .8rem 0 .4rem; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 8px; padding: .6rem .8rem; font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+  label.name { display: block; margin: .6rem 0; color: var(--muted); }
+  label.name input { background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 8px; padding: .4rem .7rem; font: inherit; margin-left: .5rem; }
+  .acts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+  .try[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+  .vals { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .2rem .8rem; font-size: 14px; color: var(--muted); margin: .8rem 0 0; }
+  .vals b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><a href="./">AURORA</a></h1>
+    <p>share a sound</p>
+    <nav><a href="./">About</a><a href="manual.html">Manual</a><a href="install.html">Install</a><a href="emu/">Play</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
+  </header>
+
+  <h2>From the FM-1 to this page</h2>
+  <p class="lead">Plug the FM-1 into this computer over USB, get the sound you want on it, then press <b>SAVE</b> and then <b>GLO</b>. The screen says SOUND SENT and the sound lands here as text: every control's value, the same text the emulator's Copy sound makes.</p>
+  <p>Chrome or Edge, with MIDI allowed when the browser asks. Firmware 0.7.5 or later.</p>
+
+  <div class="catch">
+    <div class="state wait" id="state">Waiting for MIDI permission…</div>
+    <label class="name">Name it<input id="name" type="text" maxlength="40" placeholder="what you would call it" autocomplete="off"></label>
+    <textarea id="text" readonly placeholder="The sound appears here when the FM-1 sends it."></textarea>
+    <div class="acts">
+      <button class="try" id="copy" type="button" aria-disabled="true">COPY</button>
+      <a class="try b" id="issue" href="#" target="_blank" rel="noopener" aria-disabled="true">SEND IT IN</a>
+      <span id="note" class="note" style="border: 0; padding: 0"></span>
+    </div>
+    <div class="vals" id="vals"></div>
+  </div>
+
+  <h3>What to do with it</h3>
+  <ul>
+    <li><b>Keep it</b>: paste the text anywhere. It is the whole sound.</li>
+    <li><b>Send it in</b>: the button above opens a new issue on GitHub with the text filled in. Say how you play it. Sounds sent in may become presets, with a credit.</li>
+    <li><b>Hear it anywhere</b>: the values are the controls. Dial them into the <a href="emu/">emulator</a> or another FM-1, page by page.</li>
+  </ul>
+  <p class="note">The FM-1 sends the sound as one SysEx message (manufacturer id 7D, then "AU"). A MIDI monitor app catches it too; this page just does the decoding.</p>
+
+  <footer><small>AURORA by twochannels, GPL-3.0. M-VAVE and FM-1 are their owners' marks.</small></footer>
+</main>
+<script>
+/* the patch's fields, in the firmware's order (PATCH_FIELDS in aurora.c); format 1 is 56 bytes */
+const FIELDS = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,stretch,sub,tune,sat,filter,glide,ring,ratio".split(",");
+const $ = (id) => document.getElementById(id);
+let text = "";
+function decode(d) {                                       /* F0 7D 41 55 fmt size nibbles... sum F7 -> bytes, or null */
+  if (d.length < 8 || d[0] !== 0xF0 || d[1] !== 0x7D || d[2] !== 0x41 || d[3] !== 0x55 || d[d.length - 1] !== 0xF7) return null;
+  const fmt = d[4], size = d[5], out = [];
+  if (d.length !== 8 + 2 * size) return { error: "a dump of the wrong length" };
+  let sum = 0;
+  for (let i = 0; i < size; i++) { const hi = d[6 + 2 * i], lo = d[7 + 2 * i]; sum += hi + lo; out.push(hi << 4 | lo); }
+  if ((sum & 127) !== d[6 + 2 * size]) return { error: "the checksum does not match: try again" };
+  return { fmt, bytes: out };
+}
+function show(bytes) {
+  const names = FIELDS.length === bytes.length ? FIELDS : bytes.map((_, i) => "f" + i);
+  text = "AURORA sound: " + names.map((f, i) => f + "=" + bytes[i]).join(" ");
+  $("text").value = text;
+  $("vals").innerHTML = names.map((f, i) => "<span><b>" + f + "</b> " + bytes[i] + "</span>").join("");
+  $("copy").removeAttribute("aria-disabled"); $("issue").removeAttribute("aria-disabled");
+  $("state").textContent = "Caught a sound" + (FIELDS.length === bytes.length ? "" : " (a newer or older firmware: the names may not match)");
+  $("state").classList.remove("wait");
+  link();
+}
+function link() {
+  const name = $("name").value.trim() || "a sound";
+  const body = text + "\n\nHow I play it:\n";
+  $("issue").href = "https://github.com/twochannels/AURORA/issues/new?title=" + encodeURIComponent("Sound: " + name) + "&body=" + encodeURIComponent(body);
+}
+$("name").addEventListener("input", link);
+$("copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(text); $("note").textContent = "Copied."; } catch { $("text").select(); $("note").textContent = "Select and copy the text."; }
+});
+(async () => {
+  if (!navigator.requestMIDIAccess) { $("state").textContent = "This browser has no Web MIDI: use Chrome or Edge, or a MIDI monitor app."; return; }
+  let access;
+  try { access = await navigator.requestMIDIAccess({ sysex: true }); }
+  catch { $("state").textContent = "MIDI was not allowed. Reload and allow it, including SysEx."; return; }
+  const listen = () => {
+    const names = [];
+    for (const input of access.inputs.values()) {
+      names.push(input.name);
+      input.onmidimessage = (e) => { const d = e.data; if (d[0] !== 0xF0) return; const r = decode(d); if (!r) return; if (r.error) { $("state").textContent = r.error; return; } show(r.bytes); };
+    }
+    if (!text) $("state").textContent = names.length ? "Listening on " + names.join(", ") + ". On the FM-1: SAVE, then GLO." : "No MIDI device yet. Plug the FM-1 in over USB.";
+  };
+  access.onstatechange = listen;
+  listen();
+})();
+</script>
+</body>
+</html>

@@ -305,7 +305,9 @@
     <li>Press <b>SAVE</b> again. The sound as you hear it is written, and that slot is now selected.</li>
   </ol>
   <p>Any other button cancels. USER slots follow the twenty-four presets on the PRESETS encoder.</p>
-  <p class="tip">In the <a href="emu/">emulator</a>, <b>Copy sound</b> puts the current sound on the clipboard as text, for sharing or keeping.</p>
+  <h3>Sending a sound</h3>
+  <p>To get a sound off the FM-1, press <b>SAVE</b> and then <b>GLO</b>. The screen says SOUND SENT and the sound goes out over USB MIDI as one SysEx message. With the FM-1 plugged into a computer, the <a href="share.html">share page</a> catches it and turns it into text: every control's value, to keep, to paste anywhere, or to send in as a preset.</p>
+  <p class="tip">In the <a href="emu/">emulator</a>, <b>Copy sound</b> makes the same text from the sound playing there.</p>
 
   <h2 class="v" id="scenes">Two scenes and a morph</h2>
   <p>Every sound has a second scene, B: another preset to lean towards. Out of the box B is DEEP.</p>
@@ -332,6 +334,7 @@
     <tr><th>Pitch bend</th><td>the pitch, two semitones</td></tr>
     <tr><th>Program change</th><td>a preset: 0 to 23 the factory sounds, 24 to 39 the USER slots</td></tr>
     <tr><th>Clock, start</th><td>the delay's TIME becomes a note division and follows the tempo; the tide counts its bars, and starts over on start</td></tr>
+    <tr><th>SysEx out</th><td>SAVE, then GLO sends the current sound over USB MIDI; the <a href="share.html">share page</a> reads it</td></tr>
     <tr><th>USB audio</th><td>the FM-1 is also an audio interface: a computer can record AURORA's output over the same cable, at 44.1 or 48 kHz</td></tr>
   </table>
   <p>The macros and the filter set the same controls the knobs do, so a sequencer can play the HOME page.</p>

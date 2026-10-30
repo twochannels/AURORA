@@ -272,6 +272,14 @@ static void midi_send(uint32_t st, uint32_t d1, uint32_t d2)   /* from the main 
 {
     midi_out_event((st >> 4) | st << 8 | (d1 & 0x7Fu) << 16 | (d2 & 0x7Fu) << 24);
 }
+static void midi_sysex(const uint8_t *d, uint32_t n)           /* a whole SysEx (F0 .. F7), three bytes a packet: CIN 4 continues, 5/6/7 end with 1/2/3 bytes */
+{
+    while (n) {
+        uint32_t k = n > 3u ? 3u : n, cin = n > 3u ? 4u : 4u + k;
+        midi_out_event(cin | (uint32_t)d[0] << 8 | (k > 1u ? (uint32_t)d[1] << 16 : 0u) | (k > 2u ? (uint32_t)d[2] << 24 : 0u));
+        d += k; n -= k;
+    }
+}
 
 /* ---- the timer: 10 kHz key scan, milliseconds, USB at 2 kHz. It outranks the audio ISR; nested in a
  * render it only scans, counts and feeds the USB audio stream (as sloopDX main.c) */

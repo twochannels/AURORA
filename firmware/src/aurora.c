@@ -680,11 +680,26 @@ static const char *preset_name(uint32_t i)
     if (i >= 10u) { uname[5] = (char)('0' + i / 10u); uname[6] = (char)('0' + i % 10u); uname[7] = 0; } else { uname[5] = (char)('0' + i); uname[6] = 0; }
     return uname;
 }
+/* the sound out over MIDI (SAVE, then GLO): one SysEx, F0 7D 'A' 'U' <format> <size> then each byte of the patch as two
+ * nibbles, a checksum (the nibbles' sum, mod 128), F7. 7D is the non-commercial manufacturer id. The site's share page
+ * (share.html) reads it back into the emulator's "Copy sound" text; the field names are PATCH_FIELDS, in order */
+#define DUMP_FORMAT 1u
+static void patch_send(void)
+{
+    uint8_t m[8 + 2 * sizeof(patch_t)];
+    const uint8_t *p = (const uint8_t *)&patch;
+    uint32_t i, n = 0, sum = 0;
+    m[n++] = 0xF0; m[n++] = 0x7D; m[n++] = 'A'; m[n++] = 'U'; m[n++] = DUMP_FORMAT; m[n++] = (uint8_t)sizeof(patch_t);
+    for (i = 0; i < sizeof(patch_t); i++) { m[n++] = p[i] >> 4; m[n++] = p[i] & 15u; sum += (p[i] >> 4) + (p[i] & 15u); }
+    m[n++] = (uint8_t)(sum & 127u); m[n++] = 0xF7;
+    midi_sysex(m, n);
+}
 /* scenes: A is the sound as set (set.patch), B another preset (set.scene_b, a copy in RAM you can edit while there);
  * ARP morphs between them over four seconds, SEL cuts. The knobs edit the scene you are at. */
 static patch_t scene_b;
 static int32_t morph, morph_to;                  /* 0 at A .. 32767 at B, and where it is going */
 static uint8_t save_mode, save_slot;             /* SAVE: picking a slot with PRESETS */
+static uint32_t sent_ms = 0x80000000u;           /* when the sound was last sent out (SAVE, GLO): the header says so for a moment */
 static uint8_t *scene_ptr(uint32_t off) { return (morph_to && morph == 32767 ? (uint8_t *)&scene_b : (uint8_t *)&set.patch) + off; }
 static void live_update(void)                    /* patch, the sound as played, from the scenes and the morph (the autopilot adds its drift after) */
 {
@@ -777,6 +792,8 @@ static void draw_header(void)
         n = preset_name(NPRESET + save_slot);
         while (*n && i < 15) s[i++] = *n++;
         s[i] = 0; title = s;
+    } else if (fm1_ms - sent_ms < 2000u) {      /* the sound just went out */
+        title = "SOUND SENT";
     } else if (page == PG_HOME) {               /* the preset's name, starred once the sound has been changed; scene B's while there */
         int32_t i = 0;
         const char *n = preset_name(morph >= 16384 ? set.scene_b : set.preset);
@@ -1498,7 +1515,8 @@ static void app_loop(void)
             set.preset = (uint8_t)(NPRESET + save_slot); set.patch = patch; morph = morph_to = 0; changed(); save_mode = 0;
         }
         page_drawn = ~0u;
-    } else if (save_mode && (b & ~(1u << BTN_SAVE))) { save_mode = 0; page_drawn = ~0u; }   /* any other button: not saving */
+    } else if (save_mode && (b & (1u << BTN_GLO))) { patch_send(); sent_ms = fm1_ms; save_mode = 0; page_drawn = ~0u; }   /* SAVE, GLO: the sound out over USB MIDI, to share */
+    else if (save_mode && (b & ~(1u << BTN_SAVE))) { save_mode = 0; page_drawn = ~0u; }   /* any other button: not saving */
     if (b & (1u << BTN_SEL)) { morph_to = morph_to ? 0 : 32767; morph = morph_to; live_update(); page_drawn = ~0u; }   /* SEL: cut to the other scene */
     {   /* ARP: let go without turning PRESETS while held: morph to the other scene; turned: B was picked instead */
         uint32_t arp = fm1_in.buttons >> BTN_ARP & 1u;
