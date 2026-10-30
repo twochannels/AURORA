@@ -1,4 +1,4 @@
-# AURORA 0.7.8
+# AURORA 0.7.9
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -22,7 +22,8 @@ page shows the division. Without a clock it is a time, as before.
 **Sending a sound.** SAVE, then GLO sends the current sound over USB MIDI as one SysEx message. The site's share page
 catches it and turns it into text: every control's value, to keep, to paste, or to send in as a preset with one click.
 
-**Fixed.** Scene B's edits are kept across a power-off. Until now B was rebuilt from its preset at power-on, so a
+**Fixed.** SAVE while at scene B kept B but also replaced A with it, and offered A's slot, so saving a B sound could
+wipe the A sound twice over; now B goes to its own slot (or the first empty one) and A is left alone. Scene B's edits are kept across a power-off. Until now B was rebuilt from its preset at power-on, so a
 sound built at B was lost unless it had been saved to a USER slot from B (the knobs edit the scene you are at; the
 manual now says so). Settings from earlier versions carry over. VOLUME is applied after DRIVE, so on a driven sound it is a level and not less grit. The manual says
 MASTER is the output volume (the FM-1 has one) and lists USB audio recording.

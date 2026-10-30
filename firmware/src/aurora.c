@@ -717,7 +717,7 @@ static void live_update(void)                    /* patch, the sound as played, 
     if (!morph) { patch = set.patch; return; }
     for (i = 0; i < sizeof(patch_t); i++) {
         int32_t va = ((uint8_t *)&set.patch)[i], vb = ((uint8_t *)&set.patch_b)[i];
-        ((uint8_t *)&patch)[i] = (uint8_t)(i == offsetof(patch_t, dly_ping) || i == offsetof(patch_t, dly_sync) ? (morph >= 16384 ? vb : va) : va + (((vb - va) * morph) >> 15));
+        ((uint8_t *)&patch)[i] = (uint8_t)(i == offsetof(patch_t, dly_ping) || i == offsetof(patch_t, dly_sync) ? (morph >= 16384 ? vb : va) : va + (((vb - va) * morph + 16384) >> 15));   /* (rounded: at 32767 it is B exactly) */
     }
 }
 static int preset_edited(void)              /* the sound differs from its preset */
@@ -1523,12 +1523,20 @@ static void app_loop(void)
         if (autopilot) { for (k = 0; k < NAUTO; k++) { auto_v[k] = 0; auto_aim[k] = 99; } } else patch = set.patch;   /* on: from where it is set, aims drawn at once; off: back to the sound as set */
         page_drawn = ~0u;
     }
-    if (b & (1u << BTN_SAVE)) {                                          /* SAVE: once to pick a slot (PRESETS), again to write it */
-        if (!save_mode) { save_mode = 1; save_slot = set.preset >= NPRESET ? (uint8_t)(set.preset - NPRESET) : 0u; }
-        else {
-            bank[save_slot].magic = USLOT_MAGIC; bank[save_slot].p = patch;   /* the sound as played: what you hear is what you keep */
+    if (b & (1u << BTN_SAVE)) {                                          /* SAVE: once to pick a slot (PRESETS), again to write it. At B it is B that is kept */
+        uint32_t at_b = morph >= 16384;
+        if (!save_mode) {                                                /* the slot offered: this scene's own if it is a USER slot, else the first empty one */
+            uint32_t cur = at_b ? set.scene_b : set.preset;
+            save_mode = 1;
+            if (cur >= NPRESET) save_slot = (uint8_t)(cur - NPRESET);
+            else { for (k = 0; k < NUSER && bank[k].magic == USLOT_MAGIC; k++) {} save_slot = (uint8_t)(k < NUSER ? k : 0u); }
+        } else {
+            const patch_t *keep = morph == 32767 ? &set.patch_b : &patch;   /* the sound as played: what you hear is what you keep (at B exactly B, not the mix) */
+            bank[save_slot].magic = USLOT_MAGIC; bank[save_slot].p = *keep;
             bank_save(bank, sizeof bank);
-            set.preset = (uint8_t)(NPRESET + save_slot); set.patch = patch; morph = morph_to = 0; changed(); save_mode = 0;
+            if (at_b) { set.scene_b = (uint8_t)(NPRESET + save_slot); set.patch_b = *keep; }        /* B is now that slot; A is left alone */
+            else { set.preset = (uint8_t)(NPRESET + save_slot); set.patch = *keep; morph = morph_to = 0; }
+            changed(); save_mode = 0;
         }
         page_drawn = ~0u;
     } else if (save_mode && (b & (1u << BTN_GLO))) { patch_send(); sent_ms = fm1_ms; save_mode = 0; page_drawn = ~0u; }   /* SAVE, GLO: the sound out over USB MIDI, to share */
