@@ -9,4 +9,4 @@ then ffmpeg to a 720 x 720 mp4 with its sound. From the repo's root, with `build
              -c:v libx264 -pix_fmt yuv420p -crf 18 -c:a aac -b:a 192k -shortest web/site/demo/aurora-$n.mp4
     done
 
-The glass one is lifted 3 dB (`-af volume=3dB`). The posters are a frame each: sky at 38 s, horns at 44 s, glass at 5 s.
+The glass one is lifted 3 dB (`-af volume=3dB`). The posters are a frame each: sky at 38 s, horns at 37 s, glass at 5 s.
