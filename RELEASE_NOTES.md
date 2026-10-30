@@ -1,4 +1,4 @@
-# AURORA 0.7.7
+# AURORA 0.7.8
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -10,7 +10,8 @@ of MOVE, so the clang is under a hand while playing; MOVE keeps its own page.
 
 **Four horns.** BRAAM, FOGHORN, WARHORN and TITAN follow PLUCK as presets 20 to 23: the film-trailer horn built on
 RING, with a sub, a drive, a slow attack and BLOOM opening it. Play them one note at a time, low, and lean on the
-key. Twenty-four presets now; the USER slots are program changes 24 to 39.
+key. Then two sounds sent in through the share page by veecheech: QUANTUM, lush strings, and PULSAR, the bass meant
+as its scene B. Twenty-six presets now; the USER slots are program changes 26 to 41.
 
 **The keys.** They sense their own velocity and pressure: a strike is VELO, a lean is SWELL on that note, and both go
 out over MIDI as velocity and polyphonic aftertouch. KEYS on the MIDI page turns the sensing off if a key misbehaves.

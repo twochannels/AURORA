@@ -595,11 +595,11 @@ static const char *const N_ONOFF[2] = {"OFF", "ON"};
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
     {"MOVE", offsetof(patch_t, move)}, {"SPACE", offsetof(patch_t, rv_mix)}, {"AIR", offsetof(patch_t, air)}, {"TILT", offsetof(patch_t, tilt)},
     {"WIDTH", offsetof(patch_t, width)}, {"DRIFT", offsetof(patch_t, drift)}, {"FREEZE", offsetof(patch_t, freeze)}, {"BLOOM", offsetof(patch_t, bloom)}};
-/* ---- the presets: each a name and what it changes from the default sound (the PRESETS encoder, or a program change). From the slow and vast to the short and struck, then the horns. */
+/* ---- the presets: each a name and what it changes from the default sound (the PRESETS encoder, or a program change). From the slow and vast to the short and struck, then the horns, then the sounds players sent in. */
 typedef struct { uint8_t off, v; } pdelta_t;
 #define D(f, v) {(uint8_t)offsetof(patch_t, f), v}
 #define END {255, 0}
-typedef struct { const char *name; pdelta_t d[40]; } preset_t;
+typedef struct { const char *name; pdelta_t d[sizeof(patch_t) + 1u]; } preset_t;   /* room for a sound that differs from the default everywhere */
 static const preset_t PRESETS[] = {
     {"AURORA", {D(tilt, 63), D(spread, 34), D(bright, 46), D(attack, 30), D(sustain, 105), D(detune, 69), D(sw_level, 58), D(sw_spread, 58), D(sw_cut, 48), D(sw_res, 66), D(air_tone, 96), D(air_tex, 52), D(air_breath, 47), D(move, 20), D(rate, 69), D(drift, 58), D(width, 96), D(air, 36), D(src_walk, 62), D(to_pitch, 83), D(to_space, 116), D(dly_time, 50), D(dly_fb, 88), D(dly_mix, 99), D(dly_tape, 92), D(rv_mix, 100), D(rv_damp, 30), D(rv_shim, 80), D(freeze, 62), D(frz_grain, 50), D(frz_spray, 40), END}},
     {"DEEP", {D(attack, 127), D(decay, 0), D(sustain, 127), D(release, 127), D(tilt, 85), D(bright, 70), D(detune, 50), D(bloom, 127), D(drift, 70), D(move, 127), D(rate, 30), D(width, 127),
@@ -656,6 +656,15 @@ static const preset_t PRESETS[] = {
     {"TITAN", {D(tune, 0), D(ring, 110), D(ratio, 79), D(sat, 110), D(sub, 80), D(tilt, 50), D(bright, 127), D(stretch, 20), D(detune, 30), D(attack, 60), D(sustain, 127), D(release, 95), D(bloom, 40),
                D(sw_level, 60), D(sw_cut, 40), D(sw_res, 60), D(air, 40), D(air_tex, 80), D(air_tone, 50), D(air_breath, 60), D(dly_mix, 40), D(dly_fb, 60), D(dly_time, 90), D(dly_tape, 90),
                D(rv_mix, 80), D(rv_size, 115), D(rv_shim, 40), D(width, 127), D(move, 60), D(rate, 25), D(drift, 60), D(velo, 30), D(volume, 78), END}},
+    /* sent in by players (the share page): QUANTUM, "lush and beautiful pads", and PULSAR, its bass, "meant to pair as a B to Quantum's A" (veecheech) */
+    {"QUANTUM", {D(tilt, 64), D(spread, 45), D(bright, 98), D(attack, 16), D(decay, 41), D(sustain, 116), D(release, 70), D(bloom, 0), D(detune, 22), D(velo, 100), D(sw_level, 75), D(sw_spread, 38), D(sw_cut, 86),
+              D(sw_res, 0), D(air_breath, 69), D(move, 56), D(rate, 35), D(drift, 12), D(width, 52), D(air, 46), D(src_wander, 31), D(src_walk, 35), D(src_chaos, 48), D(src_tide, 98), D(to_tilt, 57), D(to_colour, 86),
+              D(to_pitch, 13), D(to_space, 84), D(swell, 14), D(dly_time, 80), D(dly_fb, 101), D(dly_mix, 71), D(dly_tape, 60), D(rv_mix, 56), D(rv_size, 90), D(rv_damp, 70), D(rv_shim, 82), D(freeze, 32), D(frz_grain, 84),
+              D(frz_spray, 71), D(frz_shift, 24), D(volume, 126), D(stretch, 20), D(sub, 36), D(filter, 56), D(glide, 3), D(ratio, 0), END}},
+    {"PULSAR", {D(tilt, 67), D(spread, 46), D(bright, 64), D(attack, 0), D(decay, 40), D(sustain, 16), D(release, 30), D(bloom, 17), D(detune, 33), D(velo, 109), D(sw_level, 75), D(sw_spread, 31), D(sw_cut, 64),
+             D(sw_res, 11), D(air_breath, 69), D(move, 46), D(rate, 90), D(drift, 62), D(width, 55), D(air, 16), D(src_wander, 45), D(src_walk, 53), D(src_chaos, 65), D(src_tide, 88), D(to_tilt, 72), D(to_colour, 64),
+             D(to_pitch, 12), D(to_space, 72), D(swell, 31), D(dly_time, 69), D(dly_fb, 72), D(dly_mix, 45), D(dly_tape, 60), D(rv_mix, 46), D(rv_size, 70), D(rv_damp, 64), D(rv_shim, 12), D(freeze, 34), D(frz_grain, 67),
+             D(frz_spray, 67), D(frz_shift, 0), D(volume, 126), D(stretch, 20), D(sub, 104), D(tune, 0), D(sat, 45), D(filter, 54), D(ring, 67), D(ratio, 0), END}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 /* the user bank: sixteen slots after the factory ones, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
