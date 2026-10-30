@@ -555,8 +555,10 @@ static uint32_t voices_sounding(void)
 /* ---- what survives a power-off */
 typedef struct {
     uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense;   /* scene_b: the preset ARP morphs to; key_sense: the keys' own velocity and pressure */
-    patch_t patch;
+    patch_t patch;                                                                  /* scene A, the sound as set */
+    patch_t patch_b;                                                                /* scene B as edited (a preset, until the knobs touch it at B) */
 } settings_t;
+typedef struct { uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense; patch_t patch; } settings_v1_t;   /* up to 0.7.6: B was rebuilt from its preset at power-on, its edits lost */
 static settings_t set;
 #define SET_MAGIC 0xABu
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
@@ -694,19 +696,18 @@ static void patch_send(void)
     m[n++] = (uint8_t)(sum & 127u); m[n++] = 0xF7;
     midi_sysex(m, n);
 }
-/* scenes: A is the sound as set (set.patch), B another preset (set.scene_b, a copy in RAM you can edit while there);
- * ARP morphs between them over four seconds, SEL cuts. The knobs edit the scene you are at. */
-static patch_t scene_b;
+/* scenes: A is the sound as set (set.patch), B another preset (set.scene_b) as edited (set.patch_b: the knobs edit the
+ * scene you are at, and both are kept across a power-off); ARP morphs between them over four seconds, SEL cuts. */
 static int32_t morph, morph_to;                  /* 0 at A .. 32767 at B, and where it is going */
 static uint8_t save_mode, save_slot;             /* SAVE: picking a slot with PRESETS */
 static uint32_t sent_ms = 0x80000000u;           /* when the sound was last sent out (SAVE, GLO): the header says so for a moment */
-static uint8_t *scene_ptr(uint32_t off) { return (morph_to && morph == 32767 ? (uint8_t *)&scene_b : (uint8_t *)&set.patch) + off; }
+static uint8_t *scene_ptr(uint32_t off) { return (morph_to && morph == 32767 ? (uint8_t *)&set.patch_b : (uint8_t *)&set.patch) + off; }
 static void live_update(void)                    /* patch, the sound as played, from the scenes and the morph (the autopilot adds its drift after) */
 {
     uint32_t i;
     if (!morph) { patch = set.patch; return; }
     for (i = 0; i < sizeof(patch_t); i++) {
-        int32_t va = ((uint8_t *)&set.patch)[i], vb = ((uint8_t *)&scene_b)[i];
+        int32_t va = ((uint8_t *)&set.patch)[i], vb = ((uint8_t *)&set.patch_b)[i];
         ((uint8_t *)&patch)[i] = (uint8_t)(i == offsetof(patch_t, dly_ping) || i == offsetof(patch_t, dly_sync) ? (morph >= 16384 ? vb : va) : va + (((vb - va) * morph) >> 15));
     }
 }
@@ -1443,13 +1444,19 @@ static void app_init(void)
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
     if (bank_load(bank, sizeof bank)) memset(bank, 0, sizeof bank);
     if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NALL || set.scene_b >= NALL) {
-        set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0; set.scene_b = 1; set.key_sense = 1;
-        preset_build(0, &set.patch);
+        settings_v1_t old;
+        if (!settings_load(&old, sizeof old) && old.magic == SET_MAGIC && old.oct_plus2 <= 4u && old.preset < NALL && old.scene_b < NALL) {
+            memcpy(&set, &old, sizeof old);               /* settings from up to 0.7.6: the same, with B rebuilt from its preset */
+            preset_build(set.scene_b, &set.patch_b);
+        } else {
+            set.magic = SET_MAGIC; set.oct_plus2 = 2; set.midi_chan = 0; set.expr = 1; set.latch = 0; set.preset = 0; set.scene_b = 1; set.key_sense = 1;
+            preset_build(0, &set.patch);
+            preset_build(1, &set.patch_b);
+        }
     }
     sense_init(keys_analog_mask());
     keys_apply();
     patch = set.patch;
-    preset_build(set.scene_b, &scene_b);
     lcd_fill(0, 0, 240, 240, C_PANEL);
 }
 static void key_down(uint32_t k, uint32_t n, uint32_t vel)   /* a key pressed: its note, unless it was latched (then let go) */
@@ -1530,7 +1537,7 @@ static void app_loop(void)
     }
     if ((n = fm1_enc_take(ENC_PRESETS)) != 0) {                         /* PRESETS: the presets, on any page; a slot while saving; B while ARP is held */
         if (save_mode) save_slot = (uint8_t)(((int32_t)save_slot + n + (int32_t)NUSER * 4) % (int32_t)NUSER);
-        else if (fm1_in.buttons >> BTN_ARP & 1u) { set.scene_b = (uint8_t)(((int32_t)set.scene_b + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.scene_b, &scene_b); arp_turned = 1; changed(); live_update(); }
+        else if (fm1_in.buttons >> BTN_ARP & 1u) { set.scene_b = (uint8_t)(((int32_t)set.scene_b + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.scene_b, &set.patch_b); arp_turned = 1; changed(); live_update(); }
         else { set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); }
         page_drawn = ~0u;
     }

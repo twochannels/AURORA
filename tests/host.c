@@ -143,11 +143,28 @@ static void platform_poll(void)                 /* one call = one millisecond */
     }
 }
 
+/* HOST_STORE=file: the settings sector and the user bank kept in a file across runs, a power cycle between scripts */
+static const char *store_file;
+static void store_write(void)
+{
+    FILE *f = store_file ? fopen(store_file, "wb") : NULL;
+    if (!f) return;
+    fwrite(fake_store, 1, sizeof fake_store, f); fwrite(fake_bank, 1, sizeof fake_bank, f); fclose(f);
+}
+static void store_read(void)
+{
+    FILE *f = store_file ? fopen(store_file, "rb") : NULL;
+    if (!f) return;
+    if (fread(fake_store, 1, sizeof fake_store, f) == sizeof fake_store) (void)!fread(fake_bank, 1, sizeof fake_bank, f);
+    fclose(f);
+}
 int main(int argc, char **argv)
 {
     if (argc > 1) host_out = argv[1];
     if (argc > 2) read_script(argv[2]);
     if (argc > 3) frame_fps = (uint32_t)atoi(argv[3]);
+    store_file = getenv("HOST_STORE");
+    store_read(); atexit(store_write);
     app_init();
     for (;;) {
         platform_poll();
