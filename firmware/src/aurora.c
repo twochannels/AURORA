@@ -1403,6 +1403,7 @@ static void auto_tick(void)                      /* every 100 ms */
 }
 /* ---- the main loop */
 static uint32_t prev_keys, t_change, dirty, page_drawn = ~0u, strip_ms, last_midi_ms, loud_ms, midi_redraw, arp_was, arp_turned;
+static uint32_t knob_ms[4];                   /* when each knob last moved: the step accelerates when the clicks come fast */
 static uint8_t held[27], sustain, sus_held[128 / 8];
 /* the keys' own pressure (Velo, after CS-1's key_lean): the lean on a held key, 0..127, counted from where the key RESTS, not
  * where it landed (a key goes on settling after the note). The rest follows the driven reading down quickly for 250 ms, then
@@ -1568,10 +1569,11 @@ static void app_loop(void)
         if ((n = fm1_enc_take(ENC_KNOB1 + k)) != 0) {
             const pdesc_t *d = &PAGES[page].p[k];
             uint8_t *p;
-            int32_t v;
+            int32_t v, fast = n > 1 || n < -1 || fm1_ms - knob_ms[k] < 120u;   /* clicks close together: two a click on a 0..127 knob; one by one: every value */
+            knob_ms[k] = fm1_ms;
             if (!d->name) continue;
             p = param_ptr(d);
-            v = clamp((int32_t)*p + n * (d->max >= 100u ? 2 : 1), 0, d->max);
+            v = clamp((int32_t)*p + n * (d->max >= 100u && fast ? 2 : 1), 0, d->max);
             if (v != *p) { *p = (uint8_t)v; if (!d->global) *scene_ptr(d->off) = (uint8_t)v; changed(); draw_knob(k); draw_graphic(); if (page == PG_HOME) draw_header(); }
         }
     while (midi_get(&st, &d1, &d2)) {

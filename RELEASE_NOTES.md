@@ -1,4 +1,4 @@
-# AURORA 0.7.9
+# AURORA 0.7.10
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -21,6 +21,11 @@ page shows the division. Without a clock it is a time, as before.
 
 **Sending a sound.** SAVE, then GLO sends the current sound over USB MIDI as one SysEx message. The site's share page
 catches it and turns it into text: every control's value, to keep, to paste, or to send in as a preset with one click.
+
+**The knobs.** A click at a time moves a 0..127 control by one, so every value is reachable; clicks in quick
+succession move it by two, as before. At scene B a value no longer slips down a step on its own (the morph's mix
+rounded). An encoder learns a new detent position only after resting there a good while, so a pause between
+clicks cannot make it count every click twice from then on (presets skipping, knobs jumping by four).
 
 **Fixed.** SAVE while at scene B kept B but also replaced A with it, and offered A's slot, so saving a B sound could
 wipe the A sound twice over; now B goes to its own slot (or the first empty one) and A is left alone. Scene B's edits are kept across a power-off. Until now B was rebuilt from its preset at power-on, so a

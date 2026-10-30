@@ -19,7 +19,7 @@
  * FM1_INPUT_IDLE() while it waits.
  * Keys/buttons: integrating debounce of FM1_DEBOUNCE frames.
  * Encoders: quadrature decoder (2-sample filter, + = clockwise) with detent
- * counting: states an encoder rests in for >= FM1_REST_FRAMES are learned, and
+ * counting: states an encoder rests in for >= FM1_LEARN_FRAMES are learned, and
  * a step is emitted only on reaching a rest state after >= 2 net transitions.
  * One click = one step at any speed, whether a detent is a half or a full
  * quadrature cycle. fm1_enc_take() returns the steps.
@@ -83,6 +83,8 @@
 #define FM1_DEBOUNCE 8u           /* frames (~0.6 ms each) */
 #define FM1_SETTLE_US 10u
 #define FM1_REST_FRAMES 40u       /* ~25 ms still = a detent position */
+#define FM1_LEARN_FRAMES 250u     /* ~275 ms still before a NEW rest state is believed: a finger pausing between detents for a
+                                   * moment must not teach a full-cycle encoder a second detent (every click then counted twice) */
 #define FM1_NCOL 11u
 #define FM1_NKEY 41u              /* ids: 0..13 buttons, 14..40 note keys */
 #define FM1_NENC 7u
@@ -283,7 +285,7 @@ static void fm1__frame(void)
             fm1_in.enc_prev[e] = (uint8_t)cur;
             fm1_in.enc_rest[e] = (uint8_t)(1u << cur);
         }
-        if (fm1_in.enc_still[e] < 255u && ++fm1_in.enc_still[e] == FM1_REST_FRAMES) {
+        if (fm1_in.enc_still[e] < 255u && ++fm1_in.enc_still[e] == FM1_LEARN_FRAMES) {
             /* learn detent states: one state, or a complementary pair (00/11 or
              * 01/10). Anything else restarts the set; with 3-4 rest states every
              * arrival would look like a detent with |sub| < 2. */
