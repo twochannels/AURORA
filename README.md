@@ -1,6 +1,6 @@
 # AURORA
 
-An ambient instrument for the M-VAVE FM-1: big, wide sounds that keep moving on their own and bend to MIDI. A
+A film-score instrument for the M-VAVE FM-1: vast pads, trailer horns, glass and bells, big wide sounds that keep moving on their own and bend to MIDI. A
 sound module for a dawless rig, built for playing rather than sequencing.
 
 - **The pad**: eight voices of twelve sine partials with an ADSR envelope and velocity (VELO sets how much), a glide, and

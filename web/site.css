@@ -85,14 +85,18 @@ footer { margin-top: 3rem; color: var(--muted); font-size: 14px; border-top: 1px
 .panel b { font: 600 .9rem "Barlow Semi Condensed", sans-serif; letter-spacing: .1em; color: var(--ink); background: var(--card); border: 1px solid var(--rule); border-radius: 6px; padding: .1em .5em; white-space: nowrap; min-width: 6.5em; text-align: center; }
 .panel span { color: var(--muted); font-size: 15px; }
 
-/* the demo, beside the intro: a big play button over the poster until it plays */
-.intro { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 1.8rem; align-items: center; margin: 1.2rem 0 .6rem; }
+/* the demos: three screens in a row, a big play button over each poster until it plays */
+.demos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin: 1rem 0 .6rem; }
+.demos figure { margin: 0; }
+.demos figcaption { color: var(--muted); font-size: 14px; margin-top: .5rem; line-height: 1.45; }
+.demos figcaption b { display: block; color: var(--ink); font: 600 1rem "Barlow Semi Condensed", sans-serif; letter-spacing: .1em; margin-bottom: .15rem; }
+.demos figure:nth-child(1) b { color: var(--k1); } .demos figure:nth-child(2) b { color: var(--k4); } .demos figure:nth-child(3) b { color: var(--k2); }
+.intro { margin: 1.2rem 0 .6rem; }
 .about .lead { margin: 0 0 .8rem; }
 .layers { list-style: none; margin: 0; padding: 0; }
 .layers li { padding: .38rem 0; border-top: 1px solid var(--rule); font-size: 15px; color: var(--muted); }
 .layers li:first-child { border-top: 0; }
 .layers .kn { color: var(--ink); margin-right: .4em; }
-@media (max-width: 640px) { .intro { grid-template-columns: 1fr; } }
 .player { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--rule); background: var(--panel); }
 .demo { display: block; width: 100%; height: auto; }
 .listen { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: .5em; padding: .55em 1.2em .55em 1em; border-radius: 999px;

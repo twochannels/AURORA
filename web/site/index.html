@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AURORA: an ambient instrument for the M-VAVE FM-1</title>
-<meta name="description" content="AURORA turns the M-VAVE FM-1 into an ambient texture instrument: a wide spectral pad that keeps moving on its own, a plate with a shimmer, a tape delay, a freeze, and a screen where every page is a picture the four knobs shift. A sound module for a dawless rig.">
+<title>AURORA: a film-score instrument for the M-VAVE FM-1</title>
+<meta name="description" content="AURORA turns the M-VAVE FM-1 into a film-score instrument: vast pads that keep moving on their own, trailer horns, glass and bells, a plate with a shimmer, a tape delay, a freeze, and a screen where every page is a picture the four knobs shift. A sound module for a dawless rig.">
 <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="img/favicon-180.png">
@@ -16,7 +16,7 @@
 <main>
   <header>
     <h1><a href="./">AURORA</a></h1>
-    <p>an ambient instrument for the M-VAVE FM-1</p>
+    <p>a film-score instrument for the M-VAVE FM-1</p>
     <nav><a href="manual.html">Manual</a><a href="install.html">Install</a><a href="emu/">Play</a><a href="https://github.com/twochannels/AURORA">Source</a></nav>
   </header>
 
@@ -31,14 +31,34 @@
 
   <p class="ctas"><a class="try" href="emu/">PLAY</a> <a class="try b" href="install.html">INSTALL</a></p>
 
-  <h2 id="sky-h">The sky is the sound</h2>
+  <h2 id="sky-h">The sound of the big screen</h2>
+  <p class="lead">A film-score instrument for the M-VAVE FM-1: vast pads, trailer horns, glass and bells, all moving on their own. A sound module for a dawless rig: your sequencer sequences, AURORA sounds.</p>
+  <div class="demos">
+    <figure>
+      <div class="player">
+        <video class="demo" autoplay muted loop playsinline preload="metadata" poster="demo/sky.jpg" width="720" height="720"><source src="demo/aurora-sky.mp4" type="video/mp4"></video>
+        <button class="listen" type="button" aria-label="Play with sound"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 38 H34 L52 22 V78 L34 62 H18 Z"/><path class="wave" d="M62 36 Q72 50 62 64"/><path class="wave" d="M72 26 Q90 50 72 74"/></svg>LISTEN</button>
+      </div>
+      <figcaption><b>THE SKY</b>AURORA, the opening sound: five slow chords, a swell under the hand, the air rising, the last chord frozen.</figcaption>
+    </figure>
+    <figure>
+      <div class="player">
+        <video class="demo" autoplay muted loop playsinline preload="metadata" poster="demo/horns.jpg" width="720" height="720"><source src="demo/aurora-horns.mp4" type="video/mp4"></video>
+        <button class="listen" type="button" aria-label="Play with sound"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 38 H34 L52 22 V78 L34 62 H18 Z"/><path class="wave" d="M62 36 Q72 50 62 64"/><path class="wave" d="M72 26 Q90 50 72 74"/></svg>LISTEN</button>
+      </div>
+      <figcaption><b>THE HORNS</b>BRAAM, FOGHORN, WARHORN and TITAN held low and bent down a step; METAL opened under the last.</figcaption>
+    </figure>
+    <figure>
+      <div class="player">
+        <video class="demo" autoplay muted loop playsinline preload="metadata" poster="demo/glass.jpg" width="720" height="720"><source src="demo/aurora-glass.mp4" type="video/mp4"></video>
+        <button class="listen" type="button" aria-label="Play with sound"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 38 H34 L52 22 V78 L34 62 H18 Z"/><path class="wave" d="M62 36 Q72 50 62 64"/><path class="wave" d="M72 26 Q90 50 72 74"/></svg>LISTEN</button>
+      </div>
+      <figcaption><b>THE GLASS</b>GLASS, GAMELAN and PLUCK on one figure, the echo behind them; a BELL chord held in the freeze.</figcaption>
+    </figure>
+  </div>
+  <p class="note">Three recordings of the firmware itself, the screen as it was. Nothing was added afterwards.</p>
   <div class="intro">
-    <div class="player" id="player">
-      <video class="demo" autoplay muted loop playsinline preload="auto" poster="demo/poster.jpg" width="720" height="720"><source src="demo/aurora-demo.mp4" type="video/mp4"></video>
-      <button class="listen" id="bigplay" type="button" aria-label="Play the demo with sound"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M18 38 H34 L52 22 V78 L34 62 H18 Z"/><path class="wave" d="M62 36 Q72 50 62 64"/><path class="wave" d="M72 26 Q90 50 72 74"/></svg>LISTEN</button>
-    </div>
     <div class="about">
-      <p class="lead">An ambient instrument for the M-VAVE FM-1. A sound module for a dawless rig: your sequencer sequences, AURORA sounds.</p>
       <ul class="layers">
         <li><span class="kn k1">PAD</span> eight voices of twelve sine partials, tilting, spreading, detuned into pairs</li>
         <li><span class="kn k2">SWARM</span> five saws under it, through a filter that tracks the note</li>
@@ -143,12 +163,19 @@
   <footer><small>M-VAVE and FM-1 are their owners' marks. AURORA is not made or endorsed by any of them.</small></footer>
 </main>
 <script>
-/* the demo: a big play button over the poster, the controls once it is playing */
+/* the demos: a big play button over each poster, the controls once it is playing; starting one quiets the others */
 (() => {
-  const p = document.getElementById("player"), v = p && p.querySelector("video"), b = document.getElementById("bigplay");
-  if (!v || !b) return;
-  b.addEventListener("click", () => { v.muted = false; v.loop = false; v.controls = true; v.currentTime = 0; v.play(); p.classList.add("sound"); });   /* it plays muted on its own; this is the sound, from the top */
-  v.addEventListener("ended", () => { p.classList.remove("sound"); v.controls = false; v.muted = true; v.loop = true; v.play(); });
+  const players = Array.from(document.querySelectorAll(".player"));
+  const rest = (p) => { const v = p.querySelector("video"); p.classList.remove("sound"); v.controls = false; v.muted = true; v.loop = true; v.play(); };
+  for (const p of players) {
+    const v = p.querySelector("video"), b = p.querySelector(".listen");
+    if (!v || !b) continue;
+    b.addEventListener("click", () => {                                   /* it plays muted on its own; this is the sound, from the top */
+      for (const o of players) if (o !== p && o.classList.contains("sound")) rest(o);
+      v.muted = false; v.loop = false; v.controls = true; v.currentTime = 0; v.play(); p.classList.add("sound");
+    });
+    v.addEventListener("ended", () => rest(p));
+  }
 })();
 /* The sky: the firmware's curtains, in the page. Three curtains, each a sum of two waves, bent by slow random
  * walks standing in for the instrument's sources, lit from a sharp lower edge up into a long fade. */
