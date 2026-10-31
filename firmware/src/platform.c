@@ -242,7 +242,7 @@ static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= 256 */
 }
 
 /* ---- the user bank: BANK_LEN bytes the app lays out itself (its own magic per slot) */
-static int bank_load(void *p, uint32_t n) { return !flash_ok || n > BANK_LEN ? -1 : st_read(BANK_AT, p, n); }
+static int bank_load_at(uint32_t off, void *p, uint32_t n) { return !flash_ok || off + n > BANK_LEN ? -1 : st_read(BANK_AT + off, p, n); }
 static int bank_save(const void *p, uint32_t n)   /* erases the sector: ~50 ms with the sound stalled */
 {
     uint32_t took;

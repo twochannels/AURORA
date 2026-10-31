@@ -70,7 +70,8 @@ static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,rele
     "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
     "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,"
     "stretch,sub,tune,sat,filter,glide,ring,ratio";
-typedef char patch_fields_count_check[sizeof(patch_t) == 56u ? 1 : -1];   /* a field added: add its name above, and bump this */
+typedef char patch_fields_count_check[sizeof(patch_t) == 56u ? 1 : -1];   /* a field added: add its name above, and bump this. Fields are only ever APPENDED: saved sounds
+                                                                           * and dumps are read by length, older ones filling the new fields from BASE_PATCH */
 static const patch_t BASE_PATCH = {      /* the presets build on this; the boot sound is preset 0, AURORA, Ben's */
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
     .sw_level = 40, .sw_spread = 50, .sw_cut = 56, .sw_res = 20,
@@ -667,18 +668,42 @@ static const preset_t PRESETS[] = {
              D(frz_spray, 67), D(frz_shift, 0), D(volume, 126), D(stretch, 20), D(sub, 104), D(tune, 0), D(sat, 45), D(filter, 54), D(ring, 67), D(ratio, 0), END}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
-/* the user bank: sixteen slots after the factory ones, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA */
+/* the user bank: sixteen slots after the factory ones, USER 1..16, in the bank sector (SAVE); an empty slot is AURORA.
+ * In flash: [BANK_MAGIC][len] then NUSER slots of [used][the sound, len bytes], len the sound's size when it was
+ * written. A bank from an older firmware (a shorter sound) loads with the newer fields at their defaults, one from
+ * a newer firmware (a longer sound) as far as this one knows: a new control never costs anyone their slots. Up to
+ * 0.7.10 a slot was [0x5B][the 56-byte sound] with no header: read once and carried over. */
 #define NUSER 16u
 #define NALL (NPRESET + NUSER)
-#define USLOT_MAGIC 0x5Bu
-typedef struct { uint8_t magic; patch_t p; } uslot_t;
-static uslot_t bank[NUSER];
+#define BANK_MAGIC 0x5Cu
+#define SLOT_STRIDE (1u + sizeof(patch_t))
+static uint8_t bank[2 + NUSER * SLOT_STRIDE];       /* the image as it is in flash, at this firmware's stride */
+#define SLOT(i) (bank + 2u + (i) * SLOT_STRIDE)
+static int slot_used(uint32_t i) { return SLOT(i)[0] == 1u; }
+static void slot_put(uint32_t i, const patch_t *p) { SLOT(i)[0] = 1; memcpy(SLOT(i) + 1, p, sizeof *p); bank_save(bank, sizeof bank); }
+static void bank_read(void)
+{
+    uint8_t h[2];
+    uint32_t i, len, used_at, base;
+    memset(bank, 0, sizeof bank); bank[0] = BANK_MAGIC; bank[1] = (uint8_t)sizeof(patch_t);
+    if (bank_load_at(0, h, 2)) return;
+    if (h[0] == BANK_MAGIC && h[1]) { len = h[1]; used_at = 1; base = 2; }           /* this layout, the sound len bytes long then */
+    else if (h[0] == 0x5Bu || h[0] == 0) { len = 56; used_at = 0x5Bu; base = 0; }   /* up to 0.7.10 */
+    else return;
+    for (i = 0; i < NUSER; i++) {
+        uint32_t n = len < sizeof(patch_t) ? len : sizeof(patch_t);
+        uint8_t *s = SLOT(i);
+        if (bank_load_at(base + i * (1u + len), s, 1u + n)) { memset(bank + 2, 0, sizeof bank - 2u); return; }
+        s[0] = s[0] == used_at;
+        if (n < sizeof(patch_t)) memcpy(s + 1 + n, (const uint8_t *)&BASE_PATCH + n, sizeof(patch_t) - n);   /* the fields it did not have */
+    }
+}
 static char uname[8];
 static void preset_build(uint32_t i, patch_t *p)
 {
     const pdelta_t *d;
     i %= NALL;
-    if (i >= NPRESET) { if (bank[i - NPRESET].magic == USLOT_MAGIC) { *p = bank[i - NPRESET].p; return; } i = 0; }
+    if (i >= NPRESET) { if (slot_used(i - NPRESET)) { memcpy(p, SLOT(i - NPRESET) + 1, sizeof *p); return; } i = 0; }
     *p = BASE_PATCH;
     for (d = PRESETS[i].d; d->off != 255u; d++) ((uint8_t *)p)[d->off] = d->v;
 }
@@ -1452,7 +1477,7 @@ static void release_all(void)
 static void app_init(void)
 {
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
-    if (bank_load(bank, sizeof bank)) memset(bank, 0, sizeof bank);
+    bank_read();
     if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NALL || set.scene_b >= NALL) {
         settings_v1_t old;
         if (!settings_load(&old, sizeof old) && old.magic == SET_MAGIC && old.oct_plus2 <= 4u && old.preset < NALL && old.scene_b < NALL) {
@@ -1530,11 +1555,10 @@ static void app_loop(void)
             uint32_t cur = at_b ? set.scene_b : set.preset;
             save_mode = 1;
             if (cur >= NPRESET) save_slot = (uint8_t)(cur - NPRESET);
-            else { for (k = 0; k < NUSER && bank[k].magic == USLOT_MAGIC; k++) {} save_slot = (uint8_t)(k < NUSER ? k : 0u); }
+            else { for (k = 0; k < NUSER && slot_used(k); k++) {} save_slot = (uint8_t)(k < NUSER ? k : 0u); }
         } else {
             const patch_t *keep = morph == 32767 ? &set.patch_b : &patch;   /* the sound as played: what you hear is what you keep (at B exactly B, not the mix) */
-            bank[save_slot].magic = USLOT_MAGIC; bank[save_slot].p = *keep;
-            bank_save(bank, sizeof bank);
+            slot_put(save_slot, keep);
             if (at_b) { set.scene_b = (uint8_t)(NPRESET + save_slot); set.patch_b = *keep; }        /* B is now that slot; A is left alone */
             else { set.preset = (uint8_t)(NPRESET + save_slot); set.patch = *keep; morph = morph_to = 0; }
             changed(); save_mode = 0;

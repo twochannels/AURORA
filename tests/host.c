@@ -128,7 +128,7 @@ static void platform_poll(void)                 /* one call = one millisecond */
         wav_n += HALF_FRAMES;
     }
     if (fake_saves != saves) { saves = fake_saves; printf("%6u ms  settings saved (%u B)\n", fm1_ms, fake_store[1] | fake_store[2] << 8); }
-    if (fake_bank_saves != bsaves) { bsaves = fake_bank_saves; printf("%6u ms  user bank saved (slot magic %02X at 0, %02X at 128)\n", fm1_ms, fake_bank[0], fake_bank[128]); }
+    if (fake_bank_saves != bsaves) { bsaves = fake_bank_saves; printf("%6u ms  user bank saved (magic %02X, a sound %u bytes, slot 1 %s)\n", fm1_ms, fake_bank[0], fake_bank[1], fake_bank[2] ? "used" : "empty"); }
     if (frame_fps) {                            /* a film: a frame every 1/fps s, as the screen is then */
         if ((uint64_t)frame * 1000u <= (uint64_t)fm1_ms * frame_fps) {
             char name[512];

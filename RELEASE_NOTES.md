@@ -1,4 +1,4 @@
-# AURORA 0.7.10
+# AURORA 0.7.11
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -33,7 +33,9 @@ sound built at B was lost unless it had been saved to a USER slot from B (the kn
 manual now says so). Settings from earlier versions carry over. VOLUME is applied after DRIVE, so on a driven sound it is a level and not less grit. The manual says
 MASTER is the output volume (the FM-1 has one) and lists USB audio recording.
 
-**Note.** The sound's data grew, so the sixteen USER slots are cleared by this update. Save them again afterwards.
+**Saved sounds survive updates.** USER slots are now read by the length of the sound when they were written, so
+from here on a new control loads at its default instead of clearing the bank. Slots saved on 0.7.1 to 0.7.10 carry
+over. (Slots from 0.6.0 were cleared at 0.7.1, when the sound grew; that was the last time.)
 
 **Installing.** From the site's install page in Chrome or Edge over USB, or from the FM-1 Firmware Hub. At your own
 risk; OCT- held at power-on is the USB rescue, and any other firmware installs over AURORA the same way. The package

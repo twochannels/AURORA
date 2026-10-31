@@ -181,7 +181,7 @@ static int settings_save(const void *p, uint32_t n)
 #define BANK_LEN 0x1000u
 static uint8_t fake_bank[BANK_LEN];
 static uint32_t fake_bank_saves;
-static int bank_load(void *p, uint32_t n) { if (n > BANK_LEN) return -1; memcpy(p, fake_bank, n); return 0; }
+static int bank_load_at(uint32_t off, void *p, uint32_t n) { if (off + n > BANK_LEN) return -1; memcpy(p, fake_bank + off, n); return 0; }
 static int bank_save(const void *p, uint32_t n) { if (n > BANK_LEN) return -1; memcpy(fake_bank, p, n); fake_bank_saves++; return 0; }
 
 /* ---- meters for the host tests: the reverb lines' knee count, each stage's peak in the effects chain */
