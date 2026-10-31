@@ -13,6 +13,8 @@ $CC -O2 -Wall -pthread -o build/host/audio_worker_thread_test tests/audio_worker
 build/host/audio_worker_thread_test
 $CC -O2 -Wall -Wno-unused-function -o build/host/sense_test tests/sense_test.c
 build/host/sense_test
+$CC -O2 -Wall -Wno-unused-function -Wno-unused-const-variable -Wno-unused-variable -Wno-int-to-pointer-cast -Ifirmware/hal -o build/host/encoder_test tests/encoder_test.c
+build/host/encoder_test
 build/host/aurora build/host/aurora
 python3 - <<'PYEOF'
 from pathlib import Path

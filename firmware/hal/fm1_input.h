@@ -19,8 +19,9 @@
  * FM1_INPUT_IDLE() while it waits.
  * Keys/buttons: integrating debounce of FM1_DEBOUNCE frames.
  * Encoders: quadrature decoder (2-sample filter, + = clockwise) with detent
- * counting: states an encoder rests in for >= FM1_LEARN_FRAMES are learned, and
- * a step is emitted only on reaching a rest state after >= 2 net transitions.
+ * counting: the state at power-on is a detent, its complement is one too once the
+ * knob keeps resting there (a half-cycle encoder), and a step is emitted only on
+ * reaching a detent state after >= 2 net transitions.
  * One click = one step at any speed, whether a detent is a half or a full
  * quadrature cycle. fm1_enc_take() returns the steps.
  * LEDs: set fm1_led[col] (packed row bits, bit1 PA5..bit4 PA8); they are lit
@@ -83,8 +84,6 @@
 #define FM1_DEBOUNCE 8u           /* frames (~0.6 ms each) */
 #define FM1_SETTLE_US 10u
 #define FM1_REST_FRAMES 40u       /* ~25 ms still = a detent position */
-#define FM1_LEARN_FRAMES 250u     /* ~275 ms still before a NEW rest state is believed: a finger pausing between detents for a
-                                   * moment must not teach a full-cycle encoder a second detent (every click then counted twice) */
 #define FM1_NCOL 11u
 #define FM1_NKEY 41u              /* ids: 0..13 buttons, 14..40 note keys */
 #define FM1_NENC 7u
@@ -117,6 +116,8 @@ static volatile struct {
     uint8_t cnt[FM1_NKEY];
     uint8_t enc_prev[FM1_NENC], enc_last[FM1_NENC];
     uint8_t enc_rest[FM1_NENC];  /* learned rest (detent) states, bit per state */
+    uint8_t enc_home[FM1_NENC];  /* the state at power-on: a detent */
+    uint8_t enc_sth[FM1_NENC], enc_stc[FM1_NENC];   /* rests on it, and on its complement */
     uint8_t enc_still[FM1_NENC]; /* frames since the last state change */
     int8_t enc_sub[FM1_NENC];    /* net transitions since the last rest state */
     int8_t enc_dir[FM1_NENC];    /* the last valid transition: +1 / -1 (0: none yet) */
@@ -284,14 +285,27 @@ static void fm1__frame(void)
         if (fm1_in.enc_prev[e] == 0xFF) {          /* first frame: the knob rests here */
             fm1_in.enc_prev[e] = (uint8_t)cur;
             fm1_in.enc_rest[e] = (uint8_t)(1u << cur);
+            fm1_in.enc_home[e] = (uint8_t)cur;
         }
-        if (fm1_in.enc_still[e] < 255u && ++fm1_in.enc_still[e] == FM1_LEARN_FRAMES) {
-            /* learn detent states: one state, or a complementary pair (00/11 or
-             * 01/10). Anything else restarts the set; with 3-4 rest states every
-             * arrival would look like a detent with |sub| < 2. */
-            uint32_t r = fm1_in.enc_rest[e], bit = 1u << cur, comp = 1u << (cur ^ 3u);
-            if (!(r & bit))
-                fm1_in.enc_rest[e] = (uint8_t)(r == comp ? (r | bit) : bit);
+        if (fm1_in.enc_still[e] < 255u && ++fm1_in.enc_still[e] == FM1_REST_FRAMES) {
+            /* learn detent states (after X0X's fix of the same fault). The state at power-on is one;
+             * its complement (00/11 or 01/10) is the other only if the knob keeps resting there, as
+             * a half-cycle detent does (on both, about as often), not once: a full-cycle knob left
+             * halfway through a click sits on the complement too, and taking it as a detent made
+             * every click after it count two (PRESETS skipping every other sound). Nothing else is
+             * learned: a knob left elsewhere mid-click used to restart the set there, and the clicks
+             * after it were lost. */
+            uint32_t h = fm1_in.enc_home[e];
+            if (cur == h && fm1_in.enc_sth[e] < 255u)
+                fm1_in.enc_sth[e]++;
+            else if (cur == (h ^ 3u) && fm1_in.enc_stc[e] < 255u)
+                fm1_in.enc_stc[e]++;
+            if (fm1_in.enc_sth[e] >= 200u || fm1_in.enc_stc[e] >= 200u) {   /* the recent past counts */
+                fm1_in.enc_sth[e] >>= 1;
+                fm1_in.enc_stc[e] >>= 1;
+            }
+            fm1_in.enc_rest[e] = (uint8_t)(1u << h | (fm1_in.enc_stc[e] >= 3u &&
+                                                       fm1_in.enc_stc[e] * 3u >= fm1_in.enc_sth[e] ? 1u << (h ^ 3u) : 0u));
         }
         if (cur == fm1_in.enc_prev[e])
             continue;

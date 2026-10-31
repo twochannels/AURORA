@@ -1,4 +1,4 @@
-# AURORA 0.7.12
+# AURORA 0.7.13
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -23,9 +23,12 @@ page shows the division. Without a clock it is a time, as before.
 catches it and turns it into text: every control's value, to keep, to paste, or to send in as a preset with one click.
 
 **The knobs.** A click at a time moves a 0..127 control by one, so every value is reachable; clicks in quick
-succession move it by two, as before. At scene B a value no longer slips down a step on its own (the morph's mix
-rounded). An encoder learns a new detent position only after resting there a good while, so a pause between
-clicks cannot make it count every click twice from then on (presets skipping, knobs jumping by four).
+succession move it by two as before. A value no longer slips down by one at scene B (the morph mix is now
+rounded). And the fault behind PRESETS skipping every other sound is gone: a click left half-finished, with the
+encoder parked between detents, used to teach it a second detent, and every click after that counted twice (the
+knobs then jumped by four). The position the knob is in at power-on is now the detent, and a second one is only
+believed when the knob keeps resting there, as an encoder with two clicks a cycle does. After X0X's fix of the
+same fault. A host test now turns a simulated encoder through every case.
 
 **Fixed.** SAVE while at scene B kept B but also replaced A with it, and offered A's slot, so saving a B sound could
 wipe the A sound twice over; now B goes to its own slot (or the first empty one) and A is left alone. Scene B's edits are kept across a power-off. Until now B was rebuilt from its preset at power-on, so a
