@@ -92,7 +92,7 @@
   <div class="panel">
     <div><b>HOME</b><span>the sky</span></div>
     <div><b>EDIT</b><span>the sound: TONE, TONE 2, METAL, SWARM, AIR. Press again for the next page.</span></div>
-    <div><b>ENV</b><span>the envelope: SHAPE, then TOUCH</span></div>
+    <div><b>ENV</b><span>the envelope: SHAPE, then TOUCH, then VOICE</span></div>
     <div><b>LFO</b><span>the movement: MOVE, SOURCES, TARGETS</span></div>
     <div><b>FX</b><span>the space: SPACE, DELAY, FREEZE</span></div>
     <div><b>GLO</b><span>MIDI, and the volume</span></div>
@@ -195,6 +195,17 @@
         <tr><td><span class="kn k3">VELO</span></td><td>how much a hard or soft strike matters, on the keys or over MIDI. Zero plays every note the same.</td></tr>
         <tr><td><span class="kn k4">GLIDE</span></td><td>slides each note in from the last one.</td></tr>
       </table>
+    </div>
+  </div>
+  <div class="page">
+    <img src="img/voice.png" width="160" height="160" alt="VOICE">
+    <div>
+      <h3>VOICE</h3>
+      <p>How many notes sound at once, kept with the sound.</p>
+      <table class="ctl">
+        <tr><td><span class="kn k1">VOICES</span></td><td>1 to 8. At 1 the sound is mono: the last note wins, GLIDE is legato, and a key still held comes back when the newer one lifts. Basses, leads and the horns want 1; pads want 8.</td></tr>
+      </table>
+      <p class="tip">A sound that crunches as a chord is asking for VOICES 1.</p>
     </div>
   </div>
 
@@ -326,7 +337,7 @@
   <h2 id="midi">MIDI</h2>
   <p>Sequencer MIDI out into the FM-1's TRS jack, type A. Set the channel on the MIDI page or leave it OMNI.</p>
   <table>
-    <tr><th>Notes, velocity</th><td>eight voices. VELO on TOUCH sets how much velocity counts.</td></tr>
+    <tr><th>Notes, velocity</th><td>up to eight voices, as VOICES on the VOICE page allows. VELO on TOUCH sets how much velocity counts.</td></tr>
     <tr><th>CC 80..87</th><td>the eight macros, in the Circuit Tracks' order: <span class="kn k1">MOVE</span> <span class="kn k2">SPACE</span> <span class="kn k3">AIR</span> <span class="kn k4">TILT</span> <span class="kn k1">WIDTH</span> <span class="kn k2">DRIFT</span> <span class="kn k3">FREEZE</span> <span class="kn k4">BLOOM</span></td></tr>
     <tr><th>CC 74</th><td>the master filter, high-pass left of centre, low-pass right</td></tr>
     <tr><th>CC 7</th><td>volume</td></tr>

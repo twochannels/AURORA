@@ -1,4 +1,4 @@
-# AURORA 0.7.11
+# AURORA 0.7.12
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.

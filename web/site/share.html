@@ -60,8 +60,8 @@
   <footer><small>AURORA by twochannels, GPL-3.0. M-VAVE and FM-1 are their owners' marks.</small></footer>
 </main>
 <script>
-/* the patch's fields, in the firmware's order (PATCH_FIELDS in aurora.c); format 1 is 56 bytes */
-const FIELDS = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,stretch,sub,tune,sat,filter,glide,ring,ratio".split(",");
+/* the patch's fields, in the firmware's order (PATCH_FIELDS in aurora.c); format 1 is the sound, 57 bytes at 0.7.12; older dumps are shorter and name what they have */
+const FIELDS = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,stretch,sub,tune,sat,filter,glide,ring,ratio,voices".split(",");
 const $ = (id) => document.getElementById(id);
 let text = "";
 function decode(d) {                                       /* F0 7D 41 55 fmt size nibbles... sum F7 -> bytes, or null */

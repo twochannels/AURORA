@@ -63,14 +63,15 @@ typedef struct {
     uint8_t volume;
     uint8_t stretch, sub, tune, sat, filter, glide;               /* TONE 2: the partials stretched apart, a sub-octave, a transpose (+-12), a drive; the master filter (HP .. LP); glide */
     uint8_t ring, ratio;                                         /* METAL: the pad ring-modulated by a sine at RATIO x the pitch (0.5 .. 8, 1 at 32), RING how much */
+    uint8_t voices;                                              /* VOICE: how many notes at once, 1 (mono, last note wins, GLIDE as legato) .. 8 */
 } patch_t;
 static patch_t patch;
 /* the fields' names, in the struct's order: the emulator's "Copy sound" and any dump name them by these */
 static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,"
     "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
     "swell,dly_time,dly_fb,dly_mix,dly_ping,dly_damp,dly_sync,dly_tape,rv_mix,rv_size,rv_damp,rv_shim,rv_shift,freeze,frz_grain,frz_spray,frz_shift,volume,"
-    "stretch,sub,tune,sat,filter,glide,ring,ratio";
-typedef char patch_fields_count_check[sizeof(patch_t) == 56u ? 1 : -1];   /* a field added: add its name above, and bump this. Fields are only ever APPENDED: saved sounds
+    "stretch,sub,tune,sat,filter,glide,ring,ratio,voices";
+typedef char patch_fields_count_check[sizeof(patch_t) == 57u ? 1 : -1];   /* a field added: add its name above, and bump this. Fields are only ever APPENDED: saved sounds
                                                                            * and dumps are read by length, older ones filling the new fields from BASE_PATCH */
 static const patch_t BASE_PATCH = {      /* the presets build on this; the boot sound is preset 0, AURORA, Ben's */
     .tilt = 70, .spread = 64, .bright = 90, .attack = 60, .decay = 60, .sustain = 127, .release = 80, .bloom = 40, .detune = 36, .velo = 40,
@@ -84,6 +85,7 @@ static const patch_t BASE_PATCH = {      /* the presets build on this; the boot 
     .volume = 100,
     .stretch = 0, .sub = 0, .tune = 12, .sat = 0, .filter = 64, .glide = 0,
     .ring = 0, .ratio = 32,
+    .voices = 8,
 };
 static volatile uint32_t sync_dly;                 /* the delay's time from the MIDI clock, frames (the main loop's) */
 static volatile uint8_t dly_synced;                /* a clock is in: the delay runs at sync_dly, a note division of the beat (TIME picks it) */
@@ -514,6 +516,9 @@ static void app_audio(int32_t *out, uint32_t n)
 /* ---- the main loop's side: notes */
 static uint32_t voice_ages;
 static uint32_t last_note = 60;
+static uint8_t down[16], ndown;                   /* the notes down, in the order they came (16 at most): mono goes back to the last still down */
+static void down_del(uint32_t n) { uint32_t i, j; for (i = 0; i < ndown; i++) if (down[i] == n) { for (j = i; j + 1u < ndown; j++) down[j] = down[j + 1u]; ndown--; return; } }
+static void down_add(uint32_t n) { down_del(n); if (ndown == 16u) down_del(down[0]); down[ndown++] = (uint8_t)n; }   /* (no memmove on the device) */
 static void voice_on(uint32_t note, uint32_t vel)
 {
     uint32_t v, pick = 0, best = 0xFFFFFFFFu, held = 0;
@@ -523,6 +528,10 @@ static void voice_on(uint32_t note, uint32_t vel)
         voice_t *w = &voices[v];
         uint32_t score = w->note == note && w->gate ? 0u : w->gate ? 0xC0000000u + w->age : w->active ? 0x80000000u + w->age : w->age;
         if (score < best) { best = score; pick = v; }
+    }
+    if (held >= (patch.voices ? patch.voices : NV) && !(voices[pick].gate && voices[pick].note == note)) {   /* VOICES: at the count, the oldest held note gives way (mono: every note) */
+        best = 0xFFFFFFFFu;
+        for (v = 0; v < NV; v++) if (voices[v].gate && voices[v].age < best) { best = voices[v].age; pick = v; }
     }
     voices[pick].note = (uint8_t)note;
     voices[pick].vel = (uint8_t)(vel > 127u ? 127u : vel);
@@ -568,9 +577,9 @@ typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
 #define NONE {0, 0, 0, 0, 0}
-enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_METAL, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_METAL, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_VOICE, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
 typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
-static void draw_aurora(void), draw_tone(void), draw_metal(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_swarm(void), draw_air(void), draw_move(void),
+static void draw_aurora(void), draw_tone(void), draw_metal(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_voice(void), draw_swarm(void), draw_air(void), draw_move(void),
             draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
     {"AURORA",  draw_aurora, 1, {PA(filter, "FILTER", 127, K_BIP), PA(tilt, "TILT", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(ring, "METAL", 127, K_NUM)}},
@@ -581,6 +590,7 @@ static const page_t PAGES[NPAGE] = {
     {"AIR",     draw_air,    1, {PA(air, "AIR", 127, K_NUM), PA(air_tone, "TONE", 127, K_NUM), PA(air_tex, "TEXTUR", 127, K_NUM), PA(air_breath, "BREATH", 127, K_NUM)}},
     {"SHAPE",   draw_shape,  1, {PA(attack, "ATTACK", 127, K_NUM), PA(decay, "DECAY", 127, K_NUM), PA(sustain, "SUSTAIN", 127, K_NUM), PA(release, "RELEAS", 127, K_NUM)}},
     {"TOUCH",   draw_touch,  1, {PA(bloom, "BLOOM", 127, K_NUM), PA(swell, "SWELL", 127, K_NUM), PA(velo, "VELO", 127, K_NUM), PA(glide, "GLIDE", 127, K_NUM)}},
+    {"VOICE",   draw_voice,  1, {PA(voices, "VOICES", 8, K_NUM), NONE, NONE, NONE}},
     {"MOVE",    draw_move,   1, {PA(move, "MOVE", 127, K_NUM), PA(rate, "RATE", 127, K_NUM), PA(drift, "DRIFT", 127, K_NUM), PA(width, "WIDTH", 127, K_NUM)}},
     {"SOURCES", draw_matrix, 1, {PA(src_wander, "WANDER", 127, K_NUM), PA(src_walk, "WALK", 127, K_NUM), PA(src_chaos, "CHAOS", 127, K_NUM), PA(src_tide, "TIDE", 127, K_NUM)}},
     {"TARGETS", draw_matrix, 1, {PA(to_tilt, "TILT", 127, K_NUM), PA(to_colour, "COLOUR", 127, K_NUM), PA(to_pitch, "PITCH", 127, K_NUM), PA(to_space, "SPACE", 127, K_NUM)}},
@@ -589,7 +599,7 @@ static const page_t PAGES[NPAGE] = {
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
     {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), ST(key_sense, "KEYS", 1, K_ONOFF)}},
 };
-static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_SHAPE, 2}, {PG_SHAPE, 2}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
+static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_SHAPE, 3}, {PG_SHAPE, 3}, {PG_SHAPE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
                                              {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
@@ -646,15 +656,15 @@ static const preset_t PRESETS[] = {
                D(dly_mix, 55), D(dly_fb, 70), D(dly_time, 60), D(dly_tape, 30), D(rv_mix, 35), D(rv_size, 70), D(move, 20), D(velo, 120), D(volume, 127), END}},
     /* the horns: the film-trailer braam, built on RING. A ratio a hair off 1 throbs (the difference tone is a slow beat), 0.5 growls an
      * octave under, 1.5 is a half-integer series (brass, snarling), 2.8 is metal; a slow attack and BLOOM open it "bwaa", DRIVE grits it */
-    {"BRAAM", {D(tune, 0), D(sub, 90), D(sat, 80), D(ring, 80), D(ratio, 33), D(tilt, 45), D(bright, 110), D(detune, 70), D(attack, 55), D(sustain, 127), D(release, 85), D(bloom, 50),
+    {"BRAAM", {D(voices, 1), D(tune, 0), D(sub, 90), D(sat, 80), D(ring, 80), D(ratio, 33), D(tilt, 45), D(bright, 110), D(detune, 70), D(attack, 55), D(sustain, 127), D(release, 85), D(bloom, 50),
                D(sw_level, 70), D(sw_spread, 60), D(sw_cut, 50), D(sw_res, 30), D(move, 40), D(rate, 20), D(drift, 40), D(width, 110), D(rv_mix, 85), D(rv_size, 120), D(rv_damp, 40), D(velo, 30), END}},
-    {"FOGHORN", {D(tune, 0), D(sub, 127), D(sat, 50), D(ring, 100), D(ratio, 1), D(tilt, 90), D(bright, 60), D(detune, 40), D(attack, 75), D(sustain, 127), D(release, 100), D(bloom, 70),
+    {"FOGHORN", {D(voices, 1), D(tune, 0), D(sub, 127), D(sat, 50), D(ring, 100), D(ratio, 1), D(tilt, 90), D(bright, 60), D(detune, 40), D(attack, 75), D(sustain, 127), D(release, 100), D(bloom, 70),
                  D(sw_level, 40), D(sw_cut, 30), D(sw_res, 20), D(sw_spread, 40), D(air, 30), D(air_tone, 30), D(air_tex, 20), D(air_breath, 100), D(move, 50), D(rate, 15), D(width, 90),
                  D(rv_mix, 90), D(rv_size, 127), D(rv_damp, 60), D(velo, 20), END}},
-    {"WARHORN", {D(ring, 100), D(ratio, 51), D(sat, 85), D(sub, 40), D(tilt, 35), D(bright, 127), D(detune, 50), D(attack, 45), D(sustain, 127), D(release, 80), D(bloom, 30), D(glide, 40),
+    {"WARHORN", {D(voices, 1), D(ring, 100), D(ratio, 51), D(sat, 85), D(sub, 40), D(tilt, 35), D(bright, 127), D(detune, 50), D(attack, 45), D(sustain, 127), D(release, 80), D(bloom, 30), D(glide, 40),
                  D(sw_level, 75), D(sw_cut, 70), D(sw_res, 50), D(sw_spread, 80), D(dly_mix, 35), D(dly_fb, 50), D(dly_time, 80), D(dly_tape, 60), D(rv_mix, 70), D(rv_size, 100), D(width, 120),
                  D(move, 50), D(drift, 50), D(velo, 40), D(volume, 76), END}},
-    {"TITAN", {D(tune, 0), D(ring, 110), D(ratio, 79), D(sat, 110), D(sub, 80), D(tilt, 50), D(bright, 127), D(stretch, 20), D(detune, 30), D(attack, 60), D(sustain, 127), D(release, 95), D(bloom, 40),
+    {"TITAN", {D(voices, 1), D(tune, 0), D(ring, 110), D(ratio, 79), D(sat, 110), D(sub, 80), D(tilt, 50), D(bright, 127), D(stretch, 20), D(detune, 30), D(attack, 60), D(sustain, 127), D(release, 95), D(bloom, 40),
                D(sw_level, 60), D(sw_cut, 40), D(sw_res, 60), D(air, 40), D(air_tex, 80), D(air_tone, 50), D(air_breath, 60), D(dly_mix, 40), D(dly_fb, 60), D(dly_time, 90), D(dly_tape, 90),
                D(rv_mix, 80), D(rv_size, 115), D(rv_shim, 40), D(width, 127), D(move, 60), D(rate, 25), D(drift, 60), D(velo, 30), D(volume, 78), END}},
     /* sent in by players (the share page): QUANTUM, "lush and beautiful pads", and PULSAR, its bass, "meant to pair as a B to Quantum's A" (veecheech) */
@@ -662,7 +672,7 @@ static const preset_t PRESETS[] = {
               D(sw_res, 0), D(air_breath, 69), D(move, 56), D(rate, 35), D(drift, 12), D(width, 52), D(air, 46), D(src_wander, 31), D(src_walk, 35), D(src_chaos, 48), D(src_tide, 98), D(to_tilt, 57), D(to_colour, 86),
               D(to_pitch, 13), D(to_space, 84), D(swell, 14), D(dly_time, 80), D(dly_fb, 101), D(dly_mix, 71), D(dly_tape, 60), D(rv_mix, 56), D(rv_size, 90), D(rv_damp, 70), D(rv_shim, 82), D(freeze, 32), D(frz_grain, 84),
               D(frz_spray, 71), D(frz_shift, 24), D(volume, 126), D(stretch, 20), D(sub, 36), D(filter, 56), D(glide, 3), D(ratio, 0), END}},
-    {"PULSAR", {D(tilt, 67), D(spread, 46), D(bright, 64), D(attack, 0), D(decay, 40), D(sustain, 16), D(release, 30), D(bloom, 17), D(detune, 33), D(velo, 109), D(sw_level, 75), D(sw_spread, 31), D(sw_cut, 64),
+    {"PULSAR", {D(voices, 1), D(tilt, 67), D(spread, 46), D(bright, 64), D(attack, 0), D(decay, 40), D(sustain, 16), D(release, 30), D(bloom, 17), D(detune, 33), D(velo, 109), D(sw_level, 75), D(sw_spread, 31), D(sw_cut, 64),
              D(sw_res, 11), D(air_breath, 69), D(move, 46), D(rate, 90), D(drift, 62), D(width, 55), D(air, 16), D(src_wander, 45), D(src_walk, 53), D(src_chaos, 65), D(src_tide, 88), D(to_tilt, 72), D(to_colour, 64),
              D(to_pitch, 12), D(to_space, 72), D(swell, 31), D(dly_time, 69), D(dly_fb, 72), D(dly_mix, 45), D(dly_tape, 60), D(rv_mix, 46), D(rv_size, 70), D(rv_damp, 64), D(rv_shim, 12), D(freeze, 34), D(frz_grain, 67),
              D(frz_spray, 67), D(frz_shift, 0), D(volume, 126), D(stretch, 20), D(sub, 104), D(tune, 0), D(sat, 45), D(filter, 54), D(ring, 67), D(ratio, 0), END}},
@@ -1154,7 +1164,20 @@ static void draw_touch(void)
         cv_line(170, y0, 232, top, KC[2]);
         cv_text(170, 2, &FONT_S, "VELO", C_LEG);
     }
-    cv_rect(8, 116, 92, 4, C_SLOT); cv_rect(8, 116, patch.volume * 92 / 127, 4, KC[3]);   /* VOLUME */
+    cv_rect(8, 116, 92, 4, C_SLOT); cv_rect(8, 116, patch.glide * 92 / 127, 4, KC[3]);   /* GLIDE: how far a note slides in */
+}
+
+/* VOICE: the eight voices as pillars, those past the count dimmed, those sounding lit; one is mono */
+static void draw_voice(void)
+{
+    int32_t v, n = patch.voices ? patch.voices : (int32_t)NV;
+    for (v = 0; v < (int32_t)NV; v++) {
+        int32_t x = 20 + v * 26, on = voices[v].active, in = v < n;
+        cv_rect(x, 40, 16, 64, in ? dim(KC[0], on ? 255 : 70) : C_SLOT);
+        if (on && in) cv_rect(x + 4, 30, 8, 6, KC[0]);
+    }
+    cv_text(8, 2, &FONT_S, n == 1 ? "MONO: THE LAST NOTE WINS, GLIDE IS LEGATO" : "VOICES AT ONCE", C_LEG);
+    cv_text(20, 110, &FONT_S, "1", C_LEG); cv_text(20 + 7 * 26 + 8, 110, &FONT_S, "8", C_LEG);
 }
 
 /* SWARM: five saws fanned apart, under the filter's curve */
@@ -1462,15 +1485,22 @@ static void keys_apply(void)                        /* KEYS into the sensing mod
 }
 static int32_t oct(void) { return (int32_t)set.oct_plus2 - 2; }
 static void changed(void) { dirty = 1; t_change = fm1_ms; }
-static void note_on(uint32_t note, uint32_t vel) { voice_on(note, vel); sus_held[note >> 3] &= (uint8_t)~(1u << (note & 7u)); }
+static void note_on(uint32_t note, uint32_t vel) { down_add(note); voice_on(note, vel); sus_held[note >> 3] &= (uint8_t)~(1u << (note & 7u)); }
 static void note_off(uint32_t note)
 {
-    if (sustain || set.latch) sus_held[note >> 3] |= (uint8_t)(1u << (note & 7u));
-    else voice_off(note);
+    uint32_t v, sounding = 0;
+    down_del(note);
+    if (sustain || set.latch) { sus_held[note >> 3] |= (uint8_t)(1u << (note & 7u)); return; }
+    voice_off(note);
+    if (patch.voices && patch.voices < NV && ndown) {                  /* under the count: a note still down that lost its voice gets it back (mono: the last one) */
+        for (v = 0; v < NV; v++) if (voices[v].gate && voices[v].note == down[ndown - 1u]) sounding = 1;
+        if (!sounding) voice_on(down[ndown - 1u], 100);
+    }
 }
 static void release_all(void)
 {
     uint32_t n;
+    ndown = 0;
     for (n = 0; n < 128u; n++)
         if (sus_held[n >> 3] >> (n & 7u) & 1u) { sus_held[n >> 3] &= (uint8_t)~(1u << (n & 7u)); voice_off(n); }
 }
@@ -1540,7 +1570,7 @@ static void app_loop(void)
     if (b & (1u << BTN_OCT_UP) && set.oct_plus2 < 4u) { set.oct_plus2++; changed(); }
     if (b & (1u << BTN_HOME)) page = PG_HOME;
     if (b & (1u << BTN_EDIT)) page = page >= PG_TONE && page < PG_AIR ? page + 1u : PG_TONE;
-    if (b & (1u << BTN_ENV)) page = page == PG_SHAPE ? PG_TOUCH : PG_SHAPE;
+    if (b & (1u << BTN_ENV)) page = page == PG_SHAPE ? PG_TOUCH : page == PG_TOUCH ? PG_VOICE : PG_SHAPE;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
     if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_FREEZE ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
