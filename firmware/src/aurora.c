@@ -894,7 +894,8 @@ static void draw_knob(uint32_t k)       /* a knob's cell: a dial in its colour, 
     }
     cv_blit(60u * k, KY);
 }
-static void draw_graphic(void) { cv_begin(240, GH, C_PANEL); PAGES[page].draw(); cv_blit(0, GY); }
+static void draw_save(void);
+static void draw_graphic(void) { cv_begin(240, GH, C_PANEL); if (save_mode) draw_save(); else PAGES[page].draw(); cv_blit(0, GY); }
 static int32_t decay_px(int32_t h, uint32_t e) { return e >> 10 > 14u ? 0 : (h * (int32_t)EXP2N_Q15[(e & 1023u) >> 2]) >> (15 + (int32_t)(e >> 10)); }   /* h x 2^(-e / 1024) */
 static uint32_t sound_level(void)       /* the voices' envelopes summed, Q15, capped */
 {
@@ -1402,6 +1403,22 @@ static void draw_midi(void)
 }
 
 static uint32_t page_filled = ~0u;
+/* SAVE: the sixteen slots, the one PRESETS has picked lit, the used ones marked, and what the buttons do */
+static void draw_save(void)
+{
+    int32_t i;
+    cv_text(8, 2, &FONT_S, "TURN PRESETS TO PICK A SLOT", C_LEG);
+    for (i = 0; i < (int32_t)NUSER; i++) {
+        int32_t x = 8 + (i & 3) * 58, y = 20 + (i >> 2) * 21, sel = i == (int32_t)save_slot, used = slot_used((uint32_t)i);
+        char t[3] = {(char)('0' + (i + 1) / 10), (char)('0' + (i + 1) % 10), 0};
+        const char *n = i >= 9 ? t : t + 1;
+        cv_rect(x, y, 54, 17, sel ? KC[3] : C_SLOT);
+        if (used && !sel) cv_rect(x, y, 3, 17, dim(KC[3], 110));
+        cv_text(x + 27 - (text_w(&FONT_S, n) >> 1), y + 4, &FONT_S, n, sel ? C_GROUND : used ? C_SILK : C_LEG);
+    }
+    cv_text(8, 110, &FONT_S, "SAVE: KEEP   GLO: SEND", C_LEG);
+}
+
 static void draw_page(void)
 {
     uint32_t k;
