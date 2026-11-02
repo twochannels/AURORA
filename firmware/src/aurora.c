@@ -142,7 +142,9 @@ static uint32_t audio_cycles, pre_cycles;         /* the block's time on the mai
 static uint32_t nv_main = NV_MAIN;                /* the split: the main core's voices, 3 .. 6, moved a voice at a time towards the two cores finishing together */
 static int32_t poly_gain = 32767;                 /* the chord compensation, Q15, slewed a block at a time */
 static uint32_t np_limit = NP, np_room;           /* the guard: how many partials a voice may sound; blocks in a row with time to spare */
-#define BLOCK_TICKS (HALF_FRAMES * FM1_TICKS_PER_US * 1000000u / FS)   /* a block's time */
+#define BLOCK_TICKS (HALF_FRAMES * 1000000u / FS * FM1_TICKS_PER_US)   /* a block's time in ticks: 5804 us x 24 (the product the other way round overflowed 32 bits
+                                                                       * and the guard trimmed from 27 % load; 0.7.15 shipped so) */
+typedef char block_ticks_check[BLOCK_TICKS > 130000u && BLOCK_TICKS < 150000u ? 1 : -1];
 static volatile int32_t out_peak;
 
 /* ---- the movement: the global sources once a block (the first core, before the hand-off), then the four

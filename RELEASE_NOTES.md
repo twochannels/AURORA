@@ -1,4 +1,4 @@
-# AURORA 0.7.15
+# AURORA 0.7.16
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -29,7 +29,8 @@ own. Now the second core also takes the delay (its echoes a block, 5.8 ms, later
 voices are split by measurement, a voice a block, so the two cores finish together. The swarm's five saws are
 written out instead of looped, the same to the sample; partials under -66 dB keep time but are not summed; and
 a guard lets the top partials go, a block at a time, if a block still runs past 90 % of its time, bringing them
-back when there is room: a dulling at the edge, never a click. The MIDI page's bottom line now reads LOAD for
+back when there is room: a dulling at the edge, never a click. (0.7.15's guard measured the block wrongly and
+trimmed from a quarter of the load; 0.7.16 corrects it.) The MIDI page's bottom line now reads LOAD for
 each core and the split (5+3); a ! before the split means the guard is trimming.
 
 **The save screen.** Press SAVE and the screen now shows the sixteen USER slots, the one PRESETS has picked lit and the
