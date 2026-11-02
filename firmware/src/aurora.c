@@ -43,9 +43,11 @@
 #define CTL 32u                                    /* frames a control tick */
 #define NTICK (HALF_FRAMES / CTL)
 #define NV 8u                                      /* voices */
+#define NV_MAIN 5u                                 /* of them rendered on the main core to begin with; the worker takes the rest with the delay and the reverb (app_audio) */
 #define NP 12u                                     /* partials a voice */
 #define NPAIR 6u                                   /* the lowest partials are detuned pairs (DETUNE) */
 #define NSW 5u                                     /* the swarm: detuned saws a voice, through one filter */
+typedef char swarm_is_five_check[NSW == 5u ? 1 : -1];   /* (voice_block writes the five out) */
 #define VBUDGET 13000                              /* a voice's partials sum to at most this: 8 voices, chords and swells clear of the knee */
 
 /* ---- the sound: everything a knob or a macro sets, kept with the settings */
@@ -135,9 +137,12 @@ static inline int32_t sine_r(uint32_t ph)
     return a + (((b - a) * (int32_t)((ph >> 7) & 0x7FFFu)) >> 15);
 }
 static int32_t g_st[2u * HALF_FRAMES];
-static int32_t rv_src[2u * HALF_FRAMES], rv_wet[2u * HALF_FRAMES];
-static uint32_t audio_cycles;
+static int32_t dly_in[2u * HALF_FRAMES], dly_out[2u * HALF_FRAMES], rv_wet[2u * HALF_FRAMES];   /* the block before, dry; the same through the delay; its reverb */
+static uint32_t audio_cycles, pre_cycles;         /* the block's time on the main core; of it, the part before the join */
+static uint32_t nv_main = NV_MAIN;                /* the split: the main core's voices, 3 .. 6, moved a voice at a time towards the two cores finishing together */
 static int32_t poly_gain = 32767;                 /* the chord compensation, Q15, slewed a block at a time */
+static uint32_t np_limit = NP, np_room;           /* the guard: how many partials a voice may sound; blocks in a row with time to spare */
+#define BLOCK_TICKS (HALF_FRAMES * FM1_TICKS_PER_US * 1000000u / FS)   /* a block's time */
 static volatile int32_t out_peak;
 
 /* ---- the movement: the global sources once a block (the first core, before the hand-off), then the four
@@ -276,6 +281,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         lv = mulq15(lv, 32767 + (mulq15(w->walk[k], 16000)));               /* the walk: +-half */
         if (k && swell) lv += mulq15(32767 - lv, mulq15(swell, (int32_t)k * 2700));   /* pressure opens the upper partials */
         if (patch.bloom && w->t * 4u < (uint32_t)patch.bloom * k) lv = 0;   /* BLOOM: partial k enters bloom x k / 4 blocks in */
+        if (k >= np_limit) lv = 0;                                           /* the guard: the top partials let go while a block runs long */
         target[k] = mulq15(lv, env_q15) / (int32_t)(2 + (k >> 1));   /* the spectral shape */
         sum += target[k];
     }
@@ -298,7 +304,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
             int32_t *o = (k & 1u) ? even : odd, a = from[k] << 8, d = target[k] - from[k];
             uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
             if (patch.stretch) inc += (inc >> 16) * ((stretch_q15 * k) >> 1);   /* STRETCH: partial k at (k + 1)(1 + S k): a string's stretch, then a bell's */
-            if ((!from[k] && !target[k]) || inc >= 0x80000000u) {           /* silent, or past Nyquist: it would fold back */
+            if ((from[k] < 16 && target[k] < 16) || inc >= 0x80000000u) {   /* silent (under -66 dB at both ends), or past Nyquist: it would fold back */
                 w->ph[k] = ph + inc * HALF_FRAMES;
                 if (k < NPAIR) w->ph2[k] = w->ph2[k] + (inc >> 16) * dq * HALF_FRAMES;
                 continue;
@@ -351,16 +357,20 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
                 sinc[k] = pitch_inc256(pitch256 + ((int32_t)k - 2) * (int32_t)patch.sw_spread / 2 + ((mulq15(w->sdrift[k], patch.drift * 258) * 16) >> 15));
             }
             w->samp = lvl;
-            for (i = 0; i < HALF_FRAMES; i++) {
-                int32_t l = 0, r = 0, lp, hp, g = (a >> 8) * 4000 >> 15;      /* each saw at up to 4000: five, filtered, about as loud as the pad */
-                for (k = 0; k < NSW; k++) {
-                    int32_t v = mulq15(osc_saw(w->sph[k], sinc[k]), g);
-                    if (k & 1u) r += v; else l += v;
-                    w->sph[k] += sinc[k];
+            {   /* the five saws written out, their phases and steps in registers: a loop over them cost as much again
+                 * as the saws themselves (the loads and stores of the phase, the odd / even branch, the counter) */
+                uint32_t p0 = w->sph[0], p1 = w->sph[1], p2 = w->sph[2], p3 = w->sph[3], p4 = w->sph[4];
+                const uint32_t s0 = sinc[0], s1 = sinc[1], s2 = sinc[2], s3 = sinc[3], s4 = sinc[4];
+                for (i = 0; i < HALF_FRAMES; i++) {
+                    int32_t lp, hp, g = (a >> 8) * 4000 >> 15;      /* each saw at up to 4000: five, filtered, about as loud as the pad */
+                    int32_t l = mulq15(osc_saw(p0, s0), g) + mulq15(osc_saw(p2, s2), g) + mulq15(osc_saw(p4, s4), g);
+                    int32_t r = mulq15(osc_saw(p1, s1), g) + mulq15(osc_saw(p3, s3), g);
+                    p0 += s0; p1 += s1; p2 += s2; p3 += s3; p4 += s4;
+                    svf_step(&c, l, &w->sic[0][0], &w->sic[0][1], &lp, &hp); sl[i] += lp;
+                    svf_step(&c, r, &w->sic[1][0], &w->sic[1][1], &lp, &hp); sr[i] += lp;
+                    a += d;
                 }
-                svf_step(&c, l, &w->sic[0][0], &w->sic[0][1], &lp, &hp); sl[i] += lp;
-                svf_step(&c, r, &w->sic[1][0], &w->sic[1][1], &lp, &hp); sr[i] += lp;
-                a += d;
+                w->sph[0] = p0; w->sph[1] = p1; w->sph[2] = p2; w->sph[3] = p3; w->sph[4] = p4;
             }
         } else w->samp = 0;
         for (i = 0; i < HALF_FRAMES; i++) {
@@ -369,13 +379,48 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         }
     }
 }
-static void voices_render(uint32_t first, uint32_t step, int32_t *l, int32_t *r)
+static void voices_render(uint32_t from, uint32_t to, int32_t *l, int32_t *r, uint32_t core)
 {
     uint32_t v, i;
     for (i = 0; i < HALF_FRAMES; i++) l[i] = r[i] = 0;
-    for (v = first; v < NV; v += step) voice_block(&voices[v], l, r, first);
+    for (v = from; v < to; v++) voice_block(&voices[v], l, r, core);
 }
-static void worker_render(void *ctx) { (void)ctx; voices_render(1, 2, g_l[1], g_r[1]); fx_reverb(rv_src, rv_wet, HALF_FRAMES); }
+#ifdef DINGHY_HOST                                /* HOST_PROF=1: where a block's time goes, stage by stage (the host's clock, so shares, not device cycles) */
+#include <time.h>
+#define NPROF 11
+static const char *PROF_NAME[NPROF] = {"movement", "voices even", "voices odd", "reverb", "chord+knee", "drive+vol", "air", "delay", "space mix", "filter", "out"};
+static uint64_t prof_ns[NPROF], prof_t; static uint32_t prof_blocks;
+static uint64_t prof_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
+static void prof_lap(int k) { uint64_t n = prof_now(); prof_ns[k] += n - prof_t; prof_t = n; }
+static void prof_print(void)
+{
+    uint64_t all = 0; int k;
+    for (k = 0; k < NPROF; k++) all += prof_ns[k];
+    if (!all) return;
+    printf("block: %u us a block of %u (the host's clock); voices %u sat %u ring %u rv_mix %u rv_shim %u dly_mix %u freeze %u\n",
+           (unsigned)(all / 1000u / (prof_blocks ? prof_blocks : 1u)), (unsigned)(HALF_FRAMES * 1000000u / FS), patch.voices, patch.sat, patch.ring, patch.rv_mix, patch.rv_shim, patch.dly_mix, patch.freeze);
+    printf("block time by stage:");
+    for (k = 0; k < NPROF; k++) printf(" %s %u%%", PROF_NAME[k], (unsigned)((prof_ns[k] * 1000u / all + 5u) / 10u));
+    printf("\n");
+}
+#define PROF(k) prof_lap(k)
+#else
+#define PROF(k) ((void)0)
+#endif
+/* the worker's block: its voices for this block, then the delay and the reverb for the block before (their wet is
+ * added a block late, 5.8 ms: inaudible on echoes and tails, and it lets the main core go on to the drive, the air
+ * and the filter without waiting). The main core did four voices then waited for the worker's four and the reverb,
+ * then did everything after on its own: 85 % against the worker's 61. Now it does five voices while the worker does
+ * three with the delay and the reverb, and the two finish together. */
+static void worker_render(void *ctx)
+{
+    uint32_t i;
+    (void)ctx;
+    voices_render(nv_main, NV, g_l[1], g_r[1], 1); PROF(2);
+    for (i = 0; i < 2u * HALF_FRAMES; i++) dly_out[i] = dly_in[i];
+    fx_delay(dly_out, HALF_FRAMES); PROF(7);
+    fx_reverb(dly_out, rv_wet, HALF_FRAMES); PROF(3);
+}
 /* ---- the air: noise, shaped. Wind (white noise) against crackle (bursts of random clicks), through a resonant
  * band-pass a side, its centre set by TONE, wandering at RATE and bent by the movement's colour; it breathes
  * with the pad (a slow follower of the loudest envelope, BREATH its pace) and AIR sets how much. Global, on the
@@ -439,9 +484,13 @@ static void app_audio(int32_t *out, uint32_t n)
     int32_t vol = patch.volume * 258;
     int submitted;
     (void)n;
-    movement_block();
+#ifdef DINGHY_HOST
+    prof_t = prof_now();
+#endif
+    movement_block(); PROF(0);
     submitted = audio_worker_submit(worker_render, 0);
-    voices_render(0, submitted ? 2u : 1u, g_l[0], g_r[0]);
+    voices_render(0, submitted ? nv_main : NV, g_l[0], g_r[0], 0); PROF(1);
+    pre_cycles = fm1_ticks() - t0;
     if (submitted) audio_worker_join();
     {   /* the chord: n voices (by their envelopes) at 1 / (1 + (n - 1) / 6): one note full, four at -3.5 dB, eight
          * at -6.7, so a bright chord in mono stays under the knee; slewed over ~0.4 s so a note joining is no dip */
@@ -455,6 +504,7 @@ static void app_audio(int32_t *out, uint32_t n)
         g_st[2u * i] = mulq15(soft_knee(l, 20000), poly_gain);
         g_st[2u * i + 1u] = mulq15(soft_knee(r, 20000), poly_gain);
     }
+    PROF(4);
     if (patch.sat) {                               /* DRIVE: the pad into the clip, the level matched, so it warms, compresses, then grits */
         int32_t d8 = 256 + (int32_t)patch.sat * patch.sat, k = (9681 << 15) / softclip((10000 * d8) >> 8);   /* x1 .. x64, squared so the first half warms and the second grits; 9681 = softclip(10000): x1 at DRIVE 0, the level matched at a -10 dBFS peak, about the pad's */
         k = mulq15(k, vol);
@@ -462,17 +512,19 @@ static void app_audio(int32_t *out, uint32_t n)
     } else {
         for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(g_st[i], vol);
     }
-    air_block(g_st, HALF_FRAMES);
-    fx_delay(g_st, HALF_FRAMES);
+    PROF(5);
+    air_block(g_st, HALF_FRAMES); PROF(6);
     {                                              /* SPACE: the wet on top of the dry, the dry down to half at full */
         int32_t dry = 32767 - rv_mix_now * 129;
-        if (submitted) {
-            for (i = 0; i < 2u * HALF_FRAMES; i++) { rv_src[i] = g_st[i]; g_st[i] = mulq15(g_st[i], dry) + rv_wet[i]; }
-        } else {
+        if (submitted) {                           /* the delay's wet (dly_out - dly_in) and the reverb's, both for the block before; this block's dry kept for the worker */
+            for (i = 0; i < 2u * HALF_FRAMES; i++) { int32_t d = g_st[i]; g_st[i] = mulq15(d + dly_out[i] - dly_in[i], dry) + rv_wet[i]; dly_in[i] = d; }
+        } else {                                   /* no worker: everything here, in the block */
+            fx_delay(g_st, HALF_FRAMES); PROF(7);
             fx_reverb(g_st, rv_wet, HALF_FRAMES);
             for (i = 0; i < 2u * HALF_FRAMES; i++) g_st[i] = mulq15(g_st[i], dry) + rv_wet[i];
         }
     }
+    PROF(8);
     {   /* FILTER: the master, like the Circuit Tracks': left a high-pass sweeping up, right a low-pass sweeping down, off in
          * the middle. The cutoff slews towards the knob over ~50 ms and the coefficients slide across the block, so a sweep
          * is a sweep and not a staircase; the filter always runs, parked at the edge of the knob's side through the middle,
@@ -501,6 +553,7 @@ static void app_audio(int32_t *out, uint32_t n)
             svf_step(&c, g_st[2u * i + 1u], &mf_ic[1][0], &mf_ic[1][1], &lp, &hpo); y = hp ? hpo : lp; g_st[2u * i + 1u] += mulq15(y - g_st[2u * i + 1u], m);
         }
     }
+    PROF(9);
     {
         int32_t pk = 0;
         for (i = 0; i < 2u * HALF_FRAMES; i++) {
@@ -510,7 +563,26 @@ static void app_audio(int32_t *out, uint32_t n)
         }
         out_peak = pk;
     }
+    PROF(10);
+#ifdef DINGHY_HOST
+    prof_blocks++;
+#endif
     audio_cycles = fm1_ticks() - t0;
+    {   /* the guard: a block over 90 % of its time on either core drops the top partial of every voice (they fade
+         * over the next block, as any level change does) down to eight; 43 blocks (a quarter second) under 80 %
+         * bring one back. A dulling at the edge, never a click. */
+        uint32_t job = audio_worker.last_job_ticks, worst = audio_cycles > job ? audio_cycles : job;
+        if (worst > BLOCK_TICKS / 10u * 9u) { if (np_limit > 8u) np_limit--; np_room = 0; }
+        else if (worst < BLOCK_TICKS / 10u * 8u && np_limit < NP && ++np_room >= 43u) { np_limit++; np_room = 0; }
+        /* the split: the main core's voices against the worker's voices, delay and reverb; whichever side ran a fifth
+         * longer gives a voice to the other, one a block, between 3 and 6 (voices are rendered whole, by either core,
+         * so a voice changing sides between blocks is no different to the sound). Below a tenth of a block there is
+         * nothing to balance: the split stays. */
+        if (submitted && worst > BLOCK_TICKS / 10u) {
+            if (pre_cycles > job + job / 5u && nv_main > 3u) nv_main--;
+            else if (job > pre_cycles + pre_cycles / 5u && nv_main < 6u) nv_main++;
+        }
+    }
 }
 
 /* ---- the main loop's side: notes */
@@ -1392,12 +1464,14 @@ static void draw_midi(void)
     cv_text(8, 65, &FONT_S, "CLOCK", C_LEG); cv_text(100, 65, &FONT_S, fm1_ms - clk_last < 2000u ? "SYNCED" : "NONE", C_SILK);
     cv_text(8, 86, &FONT_S, "IN", C_LEG); cv_dot(106, 94, 4, fm1_ms - last_midi_ms < 200u ? KC[0] : C_SLOT);
     {   /* along the bottom: the octave, the voices sounding, the cores' load */
-        char t[32] = "OCT +0  0 VOICES  LOAD 00/00%";
+        char t[32] = "OCT+0 0 VOICES LOAD 00/00 0+0";   /* (0+0: the voices each core renders; a ! before it while the guard is trimming partials) */
         uint32_t v, n = 0, l = load_now > 99u ? 99u : load_now, w = wload_now > 99u ? 99u : wload_now;
         int32_t o = (int32_t)set.oct_plus2 - 2;
         for (v = 0; v < NV; v++) if (voices[v].active) n++;
-        t[4] = o < 0 ? '-' : '+'; t[5] = (char)('0' + (o < 0 ? -o : o)); t[8] = (char)('0' + n);
-        t[23] = (char)('0' + l / 10u); t[24] = (char)('0' + l % 10u); t[26] = (char)('0' + w / 10u); t[27] = (char)('0' + w % 10u);
+        t[3] = o < 0 ? '-' : '+'; t[4] = (char)('0' + (o < 0 ? -o : o)); t[6] = (char)('0' + n);
+        t[20] = (char)('0' + l / 10u); t[21] = (char)('0' + l % 10u); t[23] = (char)('0' + w / 10u); t[24] = (char)('0' + w % 10u);
+        if (np_limit < NP) t[25] = '!';
+        t[26] = (char)('0' + nv_main); t[28] = (char)('0' + (NV - nv_main));
         cv_text(4, 107, &FONT_S, t, n == NV ? KC[3] : C_LEG);
     }
 }

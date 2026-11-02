@@ -19,6 +19,7 @@ static void midi_sysex(const uint8_t *d, uint32_t n) { uint32_t i; printf("%6u m
 /* the script: at t ms, keys down (bit k = key k, 0 = F3), a button edge, a MIDI message. A script file (the second
  * argument) replaces it, a line each: "T keys MASK" (hex or decimal), "T btn ID", "T midi ST D1 D2", "T enc ID N",
  * "T end" */
+static void prof_print(void);                             /* aurora.c: HOST_PROF's stage shares */
 typedef struct { uint32_t t, keys; int btn; int enc, n; uint8_t st, d1, d2; } host_ev_t;
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, -1, 0, 0, 0, 0},                                /* C4 */
@@ -99,6 +100,7 @@ static void write_wav(void)
     fwrite(wav, 4, wav_n, f);
     fclose(f);
     printf("sound  -> %s (%u frames)\n", name, wav_n);
+    if (getenv("HOST_PROF")) prof_print();                /* (aurora.c, below) */
     printf("meters: voices %d, after chorus %d, after delay %d, after reverb %d (of 32767); reverb tanks near the 16-bit edge: %u samples; delay writes clamped: %u\n",
            dbg_peak[0], dbg_peak[1], dbg_peak[2], dbg_peak[3], rv_hot, dly_hot);
 }

@@ -1,4 +1,4 @@
-# AURORA 0.7.14
+# AURORA 0.7.15
 
 Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
 delay follows the clock. Everything since 0.6.0.
@@ -21,6 +21,16 @@ page shows the division. Without a clock it is a time, as before.
 
 **Sending a sound.** SAVE, then GLO sends the current sound over USB MIDI as one SysEx message. The site's share page
 catches it and turns it into text: every control's value, to keep, to paste, or to send in as a preset with one click.
+
+**The load, and no clicks.** A player heard clicks on the heaviest settings: eight voices, METAL, DRIVE, a long
+SHIMMR, the delay and FREEZE at once ran the main core at 85 % of a block while the second core sat at 61, because
+the main core rendered four voices, waited for the other's four and the reverb, then did everything after on its
+own. Now the second core also takes the delay (its echoes a block, 5.8 ms, later: nothing to hear), and the
+voices are split by measurement, a voice a block, so the two cores finish together. The swarm's five saws are
+written out instead of looped, the same to the sample; partials under -66 dB keep time but are not summed; and
+a guard lets the top partials go, a block at a time, if a block still runs past 90 % of its time, bringing them
+back when there is room: a dulling at the edge, never a click. The MIDI page's bottom line now reads LOAD for
+each core and the split (5+3); a ! before the split means the guard is trimming.
 
 **The save screen.** Press SAVE and the screen now shows the sixteen USER slots, the one PRESETS has picked lit and the
 used ones marked, with the three choices under them: turn PRESETS to pick, SAVE keeps the sound there, GLO sends it

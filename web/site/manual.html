@@ -340,7 +340,7 @@
   <p class="tip">Latch a chord, press SEQ, and leave the room.</p>
 
   <h2 id="midi">MIDI</h2>
-  <p>Sequencer MIDI out into the FM-1's TRS jack, type A. Set the channel on the MIDI page or leave it OMNI.</p>
+  <p>Sequencer MIDI out into the FM-1's TRS jack, type A. Set the channel on the MIDI page or leave it OMNI. The page's bottom line is the instrument's state: the octave, the voices sounding, and LOAD, how much of each block of sound the two cores are using, with the split of voices between them.</p>
   <table>
     <tr><th>Notes, velocity</th><td>up to eight voices, as VOICES on the VOICE page allows. VELO on TOUCH sets how much velocity counts.</td></tr>
     <tr><th>CC 80..87</th><td>the eight macros, in the Circuit Tracks' order: <span class="kn k1">MOVE</span> <span class="kn k2">SPACE</span> <span class="kn k3">AIR</span> <span class="kn k4">TILT</span> <span class="kn k1">WIDTH</span> <span class="kn k2">DRIFT</span> <span class="kn k3">FREEZE</span> <span class="kn k4">BLOOM</span></td></tr>
@@ -362,7 +362,7 @@
     <li><b>No sound from MIDI</b>: check CHAN on the MIDI page, and that the light flashes when you play. OMNI takes every channel.</li>
     <li><b>Too quiet, or distorting</b>: MASTER first, then VOLUME on the MIDI page, then DRIVE on TONE 2.</li>
     <li><b>It sounds different from the preset</b>: a star by the name means you have changed something. Turn PRESETS away and back to reload it.</li>
-    <li><b>It clicks</b>: a block of sound may be taking too long on the heaviest settings. Press GLO: the MIDI page shows LOAD for both cores. Fewer VOICES, less SHIMMR or a shorter DELAY lightens it; a note of the preset, the knobs and the reading helps fix it.</li>
+    <li><b>It clicks</b>: a block of sound is taking too long. Press GLO: the MIDI page's bottom line shows LOAD for each core and how the voices are split between them (5+3); a <b>!</b> before the split means the guard is already trimming the top partials to keep up. Fewer VOICES, less SHIMMR or a shorter DELAY lightens it; a note of the preset, the knobs and the reading helps fix it.</li>
     <li><b>It will not start</b>: hold OCT&minus; while switching on, then install again from the <a href="install.html">install page</a>. That rescue is always there.</li>
     <li><b>Going back</b>: any other FM-1 firmware installs over AURORA the same way.</li>
   </ul>
