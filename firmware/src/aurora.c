@@ -68,6 +68,17 @@ typedef struct {
     uint8_t voices;                                              /* VOICE: how many notes at once, 1 (mono, last note wins, GLIDE as legato) .. 8 */
 } patch_t;
 static patch_t patch;
+/* ---- what survives a power-off */
+typedef struct {
+    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense;   /* scene_b: the preset ARP morphs to; key_sense: the keys' own velocity and pressure */
+    patch_t patch;                                                                  /* scene A, the sound as set */
+    patch_t patch_b;                                                                /* scene B as edited (a preset, until the knobs touch it at B) */
+    uint8_t bus_low, bus_high, bus_limit, bus_rel;                                  /* the output bus: two shelves (64 flat), the limiter (0 off) and its release */
+} settings_t;
+typedef struct { uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense; patch_t patch; patch_t patch_b; } settings_v2_t;   /* 0.7.7 .. 0.7.16: before the bus */
+typedef struct { uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense; patch_t patch; } settings_v1_t;   /* up to 0.7.6: B was rebuilt from its preset at power-on, its edits lost */
+static settings_t set;
+#define SET_MAGIC 0xABu
 /* the fields' names, in the struct's order: the emulator's "Copy sound" and any dump name them by these */
 static const char PATCH_FIELDS[] = "tilt,spread,bright,attack,decay,sustain,release,bloom,detune,velo,sw_level,sw_spread,sw_cut,sw_res,"
     "air_tone,air_tex,air_breath,move,rate,drift,width,air,src_wander,src_walk,src_chaos,src_tide,to_tilt,to_colour,to_pitch,to_space,"
@@ -389,8 +400,8 @@ static void voices_render(uint32_t from, uint32_t to, int32_t *l, int32_t *r, ui
 }
 #ifdef DINGHY_HOST                                /* HOST_PROF=1: where a block's time goes, stage by stage (the host's clock, so shares, not device cycles) */
 #include <time.h>
-#define NPROF 11
-static const char *PROF_NAME[NPROF] = {"movement", "voices even", "voices odd", "reverb", "chord+knee", "drive+vol", "air", "delay", "space mix", "filter", "out"};
+#define NPROF 12
+static const char *PROF_NAME[NPROF] = {"movement", "voices even", "voices odd", "reverb", "chord+knee", "drive+vol", "air", "delay", "space mix", "filter", "bus", "out"};
 static uint64_t prof_ns[NPROF], prof_t; static uint32_t prof_blocks;
 static uint64_t prof_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
 static void prof_lap(int k) { uint64_t n = prof_now(); prof_ns[k] += n - prof_t; prof_t = n; }
@@ -478,6 +489,55 @@ static void air_block(int32_t *st, uint32_t n)
         }
     }
 }
+/* ---- the output bus, the rig's rather than the sound's: two one-pole shelves, LOW about 120 Hz and HIGH about 4 kHz,
+ * +-12 dB; then a limiter. The peak of every sixteen frames is taken a chunk ahead of the sound (a sixteen-frame line,
+ * 0.36 ms) and held a chunk, so the gain is down before the peak arrives and never above what the last chunk needed:
+ * the output stays under BUS_CEIL (-2 dBFS, just past the knee, which then only rounds it) with the ramp between
+ * chunks linear, a sample at a time. LIMIT lowers the threshold below the ceiling, to -18 dB at full, and makes the
+ * same up, so the knob goes from catching the odd peak to a wall; RELEAS 30 ms .. 3 s. At LIMIT 0 the gain is one
+ * and the shelves at 64 add nothing: the sound as it was, sixteen frames later. */
+#define BUS_C 16u
+#define BUS_CEIL 26000
+typedef char bus_chunk_check[HALF_FRAMES % BUS_C == 0u && (BUS_C & (BUS_C - 1u)) == 0u ? 1 : -1];
+static int32_t bus_lp[2][2];                        /* the shelves' one-poles: [low, high][side] */
+static int32_t bus_dl[2u * BUS_C];                  /* the lookahead line, L R ... */
+static uint32_t bus_dw;
+static int32_t bus_env, bus_pk1, bus_g = 4096;      /* the peak held, the chunk before's, the gain now (Q12) */
+static volatile int32_t bus_gr = 4096, bus_mk = 4096;   /* the gain at the last chunk's end and the make-up: the page's meter */
+static void bus_block(int32_t *st, uint32_t n)
+{
+    int32_t gl = (int32_t)(exp2_q15((uint32_t)set.bus_low * 32u) >> 7) - 1024;    /* 2^(dB / 6) - 1 in Q10: -0.75 .. +2.91 (-12 .. +11.8 dB) */
+    int32_t gh = (int32_t)(exp2_q15((uint32_t)set.bus_high * 32u) >> 7) - 1024;
+    int32_t lim = set.bus_limit, thr = BUS_CEIL, mk = 4096, dec, i, c;
+    uint32_t tau = (1323u * exp2_q15((uint32_t)set.bus_rel * 54u)) >> 15;          /* the release in frames: 30 ms .. 3 s, log */
+    if (lim) { thr = (int32_t)((3250u * exp2_q15(3072u - (uint32_t)lim * 24u)) >> 15); mk = (BUS_CEIL << 12) / thr; }
+    dec = (int32_t)(524288u / tau);                                                  /* the envelope's fall a chunk, Q15 */
+    bus_mk = mk;
+    for (i = 0; i < 2 * (int32_t)n; i++) {         /* the shelves: the sound clamped at twice full scale first (the knee would crush it anyway), so the sums fit */
+        int32_t x = clamp(st[i], -65535, 65535), s = i & 1;
+        bus_lp[0][s] += ((x - bus_lp[0][s]) * 555) >> 15;                           /* 120 Hz */
+        x += (bus_lp[0][s] * gl) >> 10;
+        bus_lp[1][s] += ((x - bus_lp[1][s]) * 1779) >> 12;                          /* 4 kHz */
+        st[i] = x + ((x - bus_lp[1][s]) * gh >> 10);
+    }
+    for (c = 0; c < (int32_t)n; c += (int32_t)BUS_C) {
+        int32_t pk = 0, tgt, g0 = bus_g, d;
+        for (i = 2 * c; i < 2 * (c + (int32_t)BUS_C); i++) { int32_t a = st[i] < 0 ? -st[i] : st[i]; if (a > pk) pk = a; }
+        d = (bus_env * dec) >> 15; bus_env -= d > 1 ? d : 1; if (bus_env < 0) bus_env = 0;   /* (a step at least: the tail reaches the floor) */
+        if (pk > bus_env) bus_env = pk;
+        if (bus_pk1 > bus_env) bus_env = bus_pk1;   /* held a chunk: the gain ramping now is for the chunk before */
+        bus_pk1 = pk;
+        tgt = lim && bus_env > thr ? (BUS_CEIL << 12) / bus_env : mk;
+        d = tgt - g0;
+        for (i = 0; i < (int32_t)BUS_C; i++) {
+            int32_t j = 2 * (c + i), dl = bus_dl[2u * bus_dw], dr = bus_dl[2u * bus_dw + 1u];
+            bus_g = g0 + ((d * (i + 1)) >> 4);                                      /* lands on the target exactly, never past it */
+            bus_dl[2u * bus_dw] = st[j]; bus_dl[2u * bus_dw + 1u] = st[j + 1]; bus_dw = (bus_dw + 1u) & (BUS_C - 1u);
+            st[j] = (dl * bus_g) >> 12; st[j + 1] = (dr * bus_g) >> 12;
+        }
+    }
+    bus_gr = bus_g;
+}
 static svf_t mf_c;
 static int32_t mf_ic[2][2], mf_cutq = 128 * 16 * 16, mf_mix, mf_hp;   /* the master filter's states, a side; its cutoff now (cut16 x 16), slewed; its fade-in; its side */
 static void app_audio(int32_t *out, uint32_t n)
@@ -556,6 +616,7 @@ static void app_audio(int32_t *out, uint32_t n)
         }
     }
     PROF(9);
+    bus_block(g_st, HALF_FRAMES); PROF(10);
     {
         int32_t pk = 0;
         for (i = 0; i < 2u * HALF_FRAMES; i++) {
@@ -565,7 +626,7 @@ static void app_audio(int32_t *out, uint32_t n)
         }
         out_peak = pk;
     }
-    PROF(10);
+    PROF(11);
 #ifdef DINGHY_HOST
     prof_blocks++;
 #endif
@@ -636,25 +697,16 @@ static uint32_t voices_sounding(void)
     return m;
 }
 
-/* ---- what survives a power-off */
-typedef struct {
-    uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense;   /* scene_b: the preset ARP morphs to; key_sense: the keys' own velocity and pressure */
-    patch_t patch;                                                                  /* scene A, the sound as set */
-    patch_t patch_b;                                                                /* scene B as edited (a preset, until the knobs touch it at B) */
-} settings_t;
-typedef struct { uint8_t magic, oct_plus2, midi_chan, expr, latch, preset, scene_b, key_sense; patch_t patch; } settings_v1_t;   /* up to 0.7.6: B was rebuilt from its preset at power-on, its edits lost */
-static settings_t set;
-#define SET_MAGIC 0xABu
 /* ---- the pages: a title, a graphic, four knobs. The knobs are the graphic's own controls, drawn in its colours. */
-enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP, K_DIV, K_RATIO };   /* K_DIV: a time, a note division while a clock is in */
+enum { K_NUM = 0, K_ONOFF, K_MCHAN, K_EXPR, K_SEMI, K_BIP, K_DIV, K_RATIO, K_DB };   /* K_DIV: a time, a note division while a clock is in; K_DB: +-12 dB over the knob */
 typedef struct { const char *name; uint8_t off, max, kind, global; } pdesc_t;
 #define PA(f, name, max, kind) {name, (uint8_t)offsetof(patch_t, f), max, kind, 0}
 #define ST(f, name, max, kind) {name, (uint8_t)offsetof(settings_t, f), max, kind, 1}
 #define NONE {0, 0, 0, 0, 0}
-enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_METAL, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_VOICE, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_MIDI, NPAGE };
+enum { PG_HOME = 0, PG_TONE, PG_TONE2, PG_METAL, PG_SWARM, PG_AIR, PG_SHAPE, PG_TOUCH, PG_VOICE, PG_MOVE, PG_SRC, PG_DST, PG_SPACE, PG_DELAY, PG_FREEZE, PG_BUS, PG_MIDI, NPAGE };
 typedef struct { const char *title; void (*draw)(void); uint8_t live; pdesc_t p[4]; } page_t;   /* live: redrawn ten times a second */
 static void draw_aurora(void), draw_tone(void), draw_metal(void), draw_tone2(void), draw_shape(void), draw_touch(void), draw_voice(void), draw_swarm(void), draw_air(void), draw_move(void),
-            draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_midi(void);
+            draw_matrix(void), draw_space(void), draw_delay(void), draw_freeze(void), draw_bus(void), draw_midi(void);
 static const page_t PAGES[NPAGE] = {
     {"AURORA",  draw_aurora, 1, {PA(filter, "FILTER", 127, K_BIP), PA(tilt, "TILT", 127, K_NUM), PA(air, "AIR", 127, K_NUM), PA(ring, "METAL", 127, K_NUM)}},
     {"TONE",    draw_tone,   0, {PA(tilt, "TILT", 127, K_NUM), PA(spread, "SPREAD", 127, K_NUM), PA(bright, "BRIGHT", 127, K_NUM), PA(detune, "DETUNE", 127, K_NUM)}},
@@ -671,10 +723,11 @@ static const page_t PAGES[NPAGE] = {
     {"SPACE",   draw_space,  0, {PA(rv_mix, "MIX", 127, K_NUM), PA(rv_size, "SIZE", 127, K_NUM), PA(rv_damp, "DAMP", 127, K_NUM), PA(rv_shim, "SHIMMR", 127, K_NUM)}},
     {"DELAY",   draw_delay,  0, {PA(dly_time, "TIME", 127, K_DIV), PA(dly_fb, "FEEDBK", 127, K_NUM), PA(dly_mix, "MIX", 127, K_NUM), PA(dly_tape, "TAPE", 127, K_NUM)}},
     {"FREEZE",  draw_freeze, 1, {PA(freeze, "FREEZE", 127, K_NUM), PA(frz_grain, "GRAIN", 127, K_NUM), PA(frz_spray, "SPRAY", 127, K_NUM), PA(frz_shift, "SHIFT", 24, K_SEMI)}},
+    {"BUS",     draw_bus,    1, {ST(bus_low, "LOW", 127, K_DB), ST(bus_high, "HIGH", 127, K_DB), ST(bus_limit, "LIMIT", 127, K_NUM), ST(bus_rel, "RELEAS", 127, K_NUM)}},
     {"MIDI",    draw_midi,   1, {ST(midi_chan, "CHAN", 16, K_MCHAN), ST(expr, "EXPR", 127, K_EXPR), PA(volume, "VOLUME", 127, K_NUM), ST(key_sense, "KEYS", 1, K_ONOFF)}},
 };
 static const uint8_t PAGE_GROUP[NPAGE][2] = {{PG_HOME, 1}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_TONE, 5}, {PG_SHAPE, 3}, {PG_SHAPE, 3}, {PG_SHAPE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3}, {PG_MOVE, 3},
-                                             {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_SPACE, 3}, {PG_MIDI, 1}};
+                                             {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_SPACE, 4}, {PG_MIDI, 1}};
 static const char *const N_ONOFF[2] = {"OFF", "ON"};
 /* the macros, CC 80..87 in the Circuit Tracks' order, each a patch field */
 static const struct { const char *name; uint8_t off; } MACRO[8] = {
@@ -889,6 +942,13 @@ static void fmt_value(const pdesc_t *d, uint32_t v, char *s)
         uint32_t r = (exp2_q15(v * 32u) * 100u) >> 16;
         s[i++] = (char)('0' + r / 100u); s[i++] = '.'; s[i++] = (char)('0' + r / 10u % 10u); s[i++] = (char)('0' + r % 10u); s[i] = 0; return; }
     case K_BIP: n -= 64; if (n >= -4 && n <= 4) { src = "OFF"; break; } if (n < 0) { s[i++] = '-'; n = -n; } else s[i++] = '+'; break;
+    case K_DB: {   /* the shelves: +-12 dB over the knob, to a tenth */
+        int32_t t = (n - 64) * 15 / 8;
+        if (!t) { src = "OFF"; break; }
+        if (t < 0) { s[i++] = '-'; t = -t; } else s[i++] = '+';
+        if (t >= 100) { s[i++] = (char)('0' + t / 100); s[i++] = (char)('0' + t / 10 % 10); }   /* from 10 dB, whole: four characters fit the dial */
+        else { s[i++] = (char)('0' + t / 10); s[i++] = '.'; s[i++] = (char)('0' + t % 10); }
+        s[i] = 0; return; }
     default: break;
     }
     if (src) { while (*src) s[i++] = *src++; s[i] = 0; return; }
@@ -1452,6 +1512,36 @@ static void draw_freeze(void)
     if (lift) cv_text(200, lift > 0 ? 100 : 6, &FONT_S, lift > 0 ? "UP" : "DOWN", KC[3]);
 }
 
+/* BUS: the shelves' curve over ten octaves, their corners marked; under it the limiter: how far it is holding the sound down, on a scale of 18 dB */
+static void draw_bus(void)
+{
+    static int16_t ys[224];
+    int32_t gl = ((int32_t)set.bus_low - 64) * 15 / 8, gh = ((int32_t)set.bus_high - 64) * 15 / 8, x, mid = 52, gr10 = 0, r8;
+    for (x = 0; x < 224; x++) {
+        uint32_t f = (20u * exp2_q15((uint32_t)x * 10240u / 224u)) >> 10;            /* 20 Hz .. 20 kHz, x32 */
+        int32_t wl = (int32_t)(120u * 32u * 256u / (120u * 32u + f)), wh = 256 - (int32_t)(4000u * 32u * 256u / (4000u * 32u + f));   /* each shelf's reach here, Q8 */
+        ys[x] = (int16_t)(mid - ((gl * wl + gh * wh) >> 8) * 3 / 10);              /* 3 px a dB */
+    }
+    cv_hline(8, 232, mid, C_RULE);
+    cv_vline(8 + 58, mid - 3, mid + 3, KC[0]); cv_vline(8 + 171, mid - 3, mid + 3, KC[1]);   /* the corners: 120 Hz, 4 kHz */
+    cv_curve(ys, 8, 224, C_SILK);
+    cv_text(8, 98, &FONT_S, "LIMIT", C_LEG);
+    if (!set.bus_limit) { cv_text(60, 98, &FONT_S, "OFF", C_LEG); return; }
+    r8 = (bus_mk << 8) / (bus_gr < 1 ? 1 : bus_gr);                                 /* the reduction, in tenths of a dB */
+    while (r8 >= 512) { r8 >>= 1; gr10 += 60; }
+    gr10 += (r8 - 256) * 60 / 256;
+    if (gr10 > 180) gr10 = 180;
+    cv_rect(124, 100, 108, 7, C_SLOT);
+    for (x = 0; x <= 3; x++) cv_vline(124 + x * 36, 108, 110, C_RULE);               /* 18, 12, 6, 0 dB */
+    if (gr10) cv_rect(232 - gr10 * 108 / 180, 100, gr10 * 108 / 180, 7, KC[2]);
+    {   /* the threshold, as a number: -2 .. -20 dBFS */
+        char t[8] = "-"; int32_t db = 2 + (int32_t)set.bus_limit * 18 / 127, i = 1;   /* the threshold, dBFS: the ceiling is -2, LIMIT takes it 18 further down */
+        if (db >= 10) t[i++] = (char)('0' + db / 10);
+        t[i++] = (char)('0' + db % 10); t[i++] = ' '; t[i++] = 'D'; t[i++] = 'B'; t[i] = 0;
+        cv_text(60, 98, &FONT_S, t, KC[2]);
+    }
+}
+
 /* MIDI: what it listens to */
 static void draw_midi(void)
 {
@@ -1602,8 +1692,11 @@ static void app_init(void)
     for (uint32_t k = 0; k < 1024u; k++) SINE_RAM[k] = SINE[k];
     bank_read();
     if (settings_load(&set, sizeof set) || set.magic != SET_MAGIC || set.oct_plus2 > 4u || set.preset >= NALL || set.scene_b >= NALL) {
+        settings_v2_t old2;
         settings_v1_t old;
-        if (!settings_load(&old, sizeof old) && old.magic == SET_MAGIC && old.oct_plus2 <= 4u && old.preset < NALL && old.scene_b < NALL) {
+        if (!settings_load(&old2, sizeof old2) && old2.magic == SET_MAGIC && old2.oct_plus2 <= 4u && old2.preset < NALL && old2.scene_b < NALL) {
+            memcpy(&set, &old2, sizeof old2);             /* settings from 0.7.7 to 0.7.16: the same, with the bus flat */
+        } else if (!settings_load(&old, sizeof old) && old.magic == SET_MAGIC && old.oct_plus2 <= 4u && old.preset < NALL && old.scene_b < NALL) {
             memcpy(&set, &old, sizeof old);               /* settings from up to 0.7.6: the same, with B rebuilt from its preset */
             preset_build(set.scene_b, &set.patch_b);
         } else {
@@ -1611,7 +1704,9 @@ static void app_init(void)
             preset_build(0, &set.patch);
             preset_build(1, &set.patch_b);
         }
+        set.bus_low = set.bus_high = 64; set.bus_limit = 0; set.bus_rel = 50;
     }
+    if (set.bus_low > 127u) set.bus_low = 127; if (set.bus_high > 127u) set.bus_high = 127; if (set.bus_limit > 127u) set.bus_limit = 127; if (set.bus_rel > 127u) set.bus_rel = 127;
     sense_init(keys_analog_mask());
     keys_apply();
     patch = set.patch;
@@ -1665,7 +1760,7 @@ static void app_loop(void)
     if (b & (1u << BTN_EDIT)) page = page >= PG_TONE && page < PG_AIR ? page + 1u : PG_TONE;
     if (b & (1u << BTN_ENV)) page = page == PG_SHAPE ? PG_TOUCH : page == PG_TOUCH ? PG_VOICE : PG_SHAPE;
     if (b & (1u << BTN_LFO)) page = page >= PG_MOVE && page < PG_DST ? page + 1u : PG_MOVE;
-    if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_FREEZE ? page + 1u : PG_SPACE;
+    if (b & (1u << BTN_FX)) page = page >= PG_SPACE && page < PG_BUS ? page + 1u : PG_SPACE;
     if (b & (1u << BTN_GLO)) page = PG_MIDI;
     if (b & (1u << BTN_SEQ)) {                                           /* AUTO: the sound wanders on its own */
         autopilot ^= 1u;
@@ -1769,7 +1864,7 @@ static void app_loop(void)
     for (k = 0; k < 27u; k++) fm1_led_key(KEY_LED(k), lit >> k & 1u);
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
-    fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_FREEZE); fm1_led_key(BTN_GLO, page == PG_MIDI);
+    fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_BUS); fm1_led_key(BTN_GLO, page == PG_MIDI);
     fm1_led_key(BTN_PLAY, set.latch); fm1_led_key(BTN_REC, fm1_in.buttons >> BTN_REC & 1u); fm1_led_key(BTN_SEQ, autopilot); fm1_led_key(BTN_ARP, morph_to != 0); fm1_led_key(BTN_SEL, morph >= 16384); fm1_led_key(BTN_SAVE, save_mode);
     {
         static int32_t load_acc, wload_acc;

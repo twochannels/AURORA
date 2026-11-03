@@ -1,7 +1,15 @@
-# AURORA 0.7.16
+# AURORA 0.8.0
 
-Epic film sounds for the M-VAVE FM-1: the horns arrive, the keys play with their own velocity and pressure, and the
-delay follows the clock. Everything since 0.6.0.
+Epic film sounds for the M-VAVE FM-1: a bus on the way out, the horns, the keys playing with their own velocity and
+pressure, and the delay following the clock. Everything since 0.6.0.
+
+**The bus.** A fourth page under FX, after everything else: LOW and HIGH shelves (about 120 Hz and 4 kHz, 12 dB
+either way) and a limiter. LIMIT at 0 is off; turning it up brings the level it holds down from -2 dBFS to -20 and
+makes the same up underneath, so a little catches the odd peak and a lot is a wall. It looks a third of a
+millisecond ahead, so nothing gets past it, and RELEAS sets how fast it lets go, 30 ms to 3 s; the page shows how
+far it is holding the sound down. The bus is the rig's, not the sound's: it stays through every preset and is not
+part of a sent sound. At its defaults the output is exactly what it was. (The settings grow by four bytes; your
+sound, scene B and MIDI settings carry over.)
 
 **METAL.** A new page under EDIT, after TONE 2: a ring modulator on the pad and its sub. RING is how much, RATIO the
 second sine's pitch as a multiple of the note, 0.5 to 8. Whole numbers stay in tune and thicken; the places between
