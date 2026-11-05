@@ -20,6 +20,7 @@ static void midi_sysex(const uint8_t *d, uint32_t n) { uint32_t i; printf("%6u m
  * argument) replaces it, a line each: "T keys MASK" (hex or decimal), "T btn ID", "T midi ST D1 D2", "T enc ID N",
  * "T end" */
 static void prof_print(void);                             /* aurora.c: HOST_PROF's stage shares */
+static void voices_print(void);                           /* aurora.c: HOST_VOICES's voice table */
 typedef struct { uint32_t t, keys; int btn; int enc, n; uint8_t st, d1, d2; } host_ev_t;
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, -1, 0, 0, 0, 0},                                /* C4 */
@@ -61,6 +62,7 @@ static void read_script(const char *path)
 }
 
 static const char *host_out = "build/host/aurora";
+static int host_voices;
 static int16_t *wav;
 static uint32_t wav_n;
 
@@ -139,6 +141,9 @@ static void platform_poll(void)                 /* one call = one millisecond */
         }
     } else if (shot < sizeof SHOT / sizeof SHOT[0] && fm1_ms == SHOT[shot])
         write_ppm(SHOT[shot++]);
+    if (host_voices && fm1_ms % 500u == 0u) {          /* HOST_VOICES=1: the voice table twice a second (note gate stage; H held through a cut, D a drone) */
+        printf("%6u ms  voices:", fm1_ms); voices_print(); printf("\n");
+    }
     if (fm1_ms >= end_ms) {
         write_wav();
         exit(0);
@@ -166,6 +171,7 @@ int main(int argc, char **argv)
     if (argc > 2) read_script(argv[2]);
     if (argc > 3) frame_fps = (uint32_t)atoi(argv[3]);
     store_file = getenv("HOST_STORE");
+    host_voices = getenv("HOST_VOICES") != NULL;
     store_read(); atexit(store_write);
     app_init();
     for (;;) {

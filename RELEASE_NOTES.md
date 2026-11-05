@@ -1,7 +1,15 @@
-# AURORA 0.8.1
+# AURORA 0.9.0
 
-Epic film sounds for the M-VAVE FM-1: a bus on the way out, the horns, the keys playing with their own velocity and
+Epic film sounds for the M-VAVE FM-1: a drone under another sound, a bus on the way out, the horns, the keys playing with their own velocity and
 pressure, and the delay following the clock. Everything since 0.6.0.
+
+**A drone under another sound.** A note keeps the sound it was played with. A cut (SEL, a turn of PRESETS, a
+program change) leaves every note that is sounding as it was, release tails included, and only what you play next
+is the new sound. So: PLAY, hold a chord, let go, SEL or PRESETS, play. The chord goes on in its own sound under a
+lead from the other, a mono lead included; the latch comes off at the cut so the lead plays free, PLAY stays lit
+while the drone is held and lets it go. A lead note never takes a drone voice while another is free. The space
+(delay, plate, FREEZE, the master FILTER, DRIVE, AIR) is the live sound's, and the drone goes through it with the
+lead. ARP's morph is not a cut: it carries everything along, as before. Nothing in the settings changes.
 
 **The bus.** A fourth page under FX, after everything else: LOW and HIGH shelves (about 120 Hz and 4 kHz, 12 dB
 either way) and a limiter. LIMIT at 0 is off; turning it up brings the level it holds down from -2 dBFS to -20 and

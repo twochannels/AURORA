@@ -27,7 +27,9 @@
  *                page turns it off); OCT- OCT+ the octave; PLAY latches (hold a drone with no hands: a latched key pressed again lets go,
  *                the octave buttons move you to add notes elsewhere, the lights show what is latched here); REC held is FREEZE at full;
  *                SEQ is the autopilot (nine controls wander round where they are set); ARP morphs to scene B over
- *                four seconds and back (held, PRESETS picks B), SEL cuts; SAVE, PRESETS, SAVE keeps the sound in a user slot;
+ *                four seconds and back (held, PRESETS picks B), SEL cuts; a cut (SEL, PRESETS, a program change) leaves
+ *                every sounding note the sound it was played with, so a latched chord becomes a drone under the next
+ *                sound (the latch comes off; PLAY lets the drone go); SAVE, PRESETS, SAVE keeps the sound in a user slot;
  *                SELECT is the pressure
  *                (the swell, with no aftertouch to press), ALGORITHM on HOME a bend that springs back
  *   pages        HOME (the aurora: the sound drawn; FILTER TILT AIR METAL under the knobs), EDIT: TONE, TONE 2, METAL, SWARM, AIR; ENV: SHAPE TOUCH;
@@ -134,6 +136,8 @@ typedef struct {
     uint8_t stage;                                 /* 0 off 1 attack 2 held 3 release */
     uint32_t t;                                    /* blocks since the note began (BLOOM) */
     uint32_t rng;
+    volatile uint8_t hold, drone;                  /* hold: the sound frozen in snap by a cut (scene_cut); drone: latched when the cut came, so note-offs pass it by and PLAY lets it go */
+    patch_t snap;                                  /* the sound it was played with, as it stood at the cut */
 } voice_t;
 static voice_t voices[NV];
 static volatile int32_t bend256;                   /* pitch bend, 1/256 semitone */
@@ -180,11 +184,26 @@ static volatile uint32_t tide_period_ms = 128000;  /* the tide's turn, from RATE
 static volatile uint32_t tide_reset;               /* MIDI start: the tide starts over */
 /* which source goes where, and which way: TILT, COLOUR, PITCH, SPACE x walk0 walk1 cx cy cz sin cos */
 static const int8_t MV_PATTERN[4][7] = {{1, 0, 1, 0, 0, 1, 0}, {0, -1, 0, 1, 0, 0, -1}, {-1, 0, 0, 0, 1, 0, 1}, {0, 1, -1, 0, 0, 1, 0}};
+static inline int32_t mv_move(const patch_t *q) { return mulq15((int32_t)q->move * 258, (int32_t)q->move * 258) * 2; }   /* MOVE squared, to x2: 64 is as it was, the top half overdrives (the sources clip at the extremes) */
+static void mv_dest(const patch_t *q, int32_t *tilt16, int32_t *spread, int32_t *pitch256, int32_t *space)   /* the sources this block, into a sound's four destinations */
+{
+    int32_t move = mv_move(q), amount[7], depth[4], j, i;
+    amount[0] = amount[1] = q->src_walk * 258; amount[2] = amount[3] = amount[4] = q->src_chaos * 258; amount[5] = amount[6] = q->src_tide * 258;
+    depth[0] = q->to_tilt * 258; depth[1] = q->to_colour * 258; depth[2] = q->to_pitch * 258; depth[3] = q->to_space * 258;
+    for (j = 0; j < 4; j++) {
+        int32_t g = 0, m;
+        for (i = 0; i < 7; i++) if (MV_PATTERN[j][i]) g += MV_PATTERN[j][i] * mulq15(mv.src[i], amount[i]);
+        m = mulq15(clamp(mulq15(clamp(g, -32767, 32767), move), -32767, 32767), depth[j]);
+        if (j == 0) *tilt16 = (m * 2047) >> 15;                             /* the whole of TILT */
+        else if (j == 1) *spread = (m * 64) >> 15;                           /* +-64 of SPREAD and BRIGHT */
+        else if (j == 2) *pitch256 = (m * 512) >> 15;                        /* +-2 semitones */
+        else *space = m;                                                     /* of SPACE: see below */
+    }
+}
 static void movement_block(void)
 {
-    int32_t move, amount[7], depth[4], j, i, dt;
-    mv_gain = mulq15((int32_t)patch.move * 258, (int32_t)patch.move * 258) * 2;   /* MOVE squared, to x2: 64 is as it was, the top half overdrives (the sources clip at the extremes) */
-    move = mv_gain;
+    int32_t dt;
+    mv_gain = mv_move(&patch);
     uint32_t k, e = (uint32_t)patch.rate * 61u;    /* 2^(rate / 16.8): x200 over the knob */
     mv_fb = (int32_t)((((e & 1023u) ? (uint32_t)EXP2N_Q15[(1024u - (e & 1023u)) >> 2] : 16384u) << (3u + (e >> 10))) >> 15);   /* 4 .. 760: f / 172 in Q16 */
     for (k = 0; k < 2u; k++) random_lfo(&mv.walk[k], &mv.wtarget[k], &mv.rng);
@@ -201,17 +220,7 @@ static void movement_block(void)
     mv.src[3] = clamp((mv.y * 1638) >> 8, -32767, 32767);
     mv.src[4] = clamp(((mv.z - 6400) * 1638) >> 8, -32767, 32767);            /* (z - 25) / 20 */
     mv.src[5] = sine_i(mv.tide); mv.src[6] = sine_i(mv.tide + 0x40000000u);
-    amount[0] = amount[1] = patch.src_walk * 258; amount[2] = amount[3] = amount[4] = patch.src_chaos * 258; amount[5] = amount[6] = patch.src_tide * 258;
-    depth[0] = patch.to_tilt * 258; depth[1] = patch.to_colour * 258; depth[2] = patch.to_pitch * 258; depth[3] = patch.to_space * 258;
-    for (j = 0; j < 4; j++) {
-        int32_t g = 0, m;
-        for (i = 0; i < 7; i++) if (MV_PATTERN[j][i]) g += MV_PATTERN[j][i] * mulq15(mv.src[i], amount[i]);
-        m = mulq15(clamp(mulq15(clamp(g, -32767, 32767), move), -32767, 32767), depth[j]);
-        if (j == 0) mv_tilt16 = (m * 2047) >> 15;                           /* the whole of TILT */
-        else if (j == 1) mv_spread = (m * 64) >> 15;                         /* +-64 of SPREAD and BRIGHT */
-        else if (j == 2) mv_pitch256 = (m * 512) >> 15;                      /* +-2 semitones */
-        else mv_space = m;                                                   /* of SPACE: see below */
-    }
+    mv_dest(&patch, &mv_tilt16, &mv_spread, &mv_pitch256, &mv_space);
     {   /* SPACE moves by up to the distance to the knob's nearer end: 0 stays off and 127 stays full, 64 swings +-64 */
         int32_t r = patch.rv_mix < 64 ? patch.rv_mix : 127 - patch.rv_mix;
         rv_mix_now = clamp((int32_t)patch.rv_mix + ((mv_space * r) >> 15), 0, 127);
@@ -227,11 +236,14 @@ static int32_t env_k(uint32_t t)             /* an exponential stage's step: 60 
 static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
 {
     uint32_t k, i, trig = w->trig;
+    const patch_t *p = w->hold ? &w->snap : &patch;   /* the sound: the live one, or the one it was played with (a cut froze it in snap) */
     int32_t target[NP], from[NP], env_q15, pr = (w->at > press ? w->at : press) * 258, sum = 0;
-    int32_t tilt16 = (int32_t)patch.tilt * 16 + mv_tilt16, spread = (int32_t)patch.spread - 64 + mv_spread, bright = (int32_t)patch.bright + mv_spread;
-    int32_t pitch256 = ((int32_t)w->note + (int32_t)patch.tune - 12) * 256 + bend256 + bend_knob + mv_pitch256 + w->gl;
-    int32_t swell = mulq15(pr, (int32_t)patch.swell * 258);        /* 0..32767: pressure opening the pad */
-    int32_t wl, wr, width = (int32_t)patch.width * 258;
+    int32_t m_tilt16 = mv_tilt16, m_spread = mv_spread, m_pitch256 = mv_pitch256, m_gain = mv_gain, m_space;
+    if (w->hold) { mv_dest(p, &m_tilt16, &m_spread, &m_pitch256, &m_space); m_gain = mv_move(p); }   /* the movement into its own sound's destinations */
+    int32_t tilt16 = (int32_t)p->tilt * 16 + m_tilt16, spread = (int32_t)p->spread - 64 + m_spread, bright = (int32_t)p->bright + m_spread;
+    int32_t pitch256 = ((int32_t)w->note + (int32_t)p->tune - 12) * 256 + bend256 + bend_knob + m_pitch256 + w->gl;
+    int32_t swell = mulq15(pr, (int32_t)p->swell * 258);        /* 0..32767: pressure opening the pad */
+    int32_t wl, wr, width = (int32_t)p->width * 258;
     if (trig != w->seen) {                         /* a new note */
         w->seen = trig;
         w->stage = 1;
@@ -246,20 +258,20 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         }
     }
     if (!w->gate && w->stage && w->stage < 3) w->stage = 3;
-    if (w->gl) w->gl -= w->gl / (1 + (int32_t)patch.glide * patch.glide / 16);   /* the glide: towards the note, 1 block .. 6 s */
+    if (w->gl) w->gl -= w->gl / (1 + (int32_t)p->glide * p->glide / 16);   /* the glide: towards the note, 1 block .. 6 s */
     /* the envelope, a block at a time: linear attack, exponential release */
     if (w->stage == 1) {
-        w->env += (1 << 24) / (int32_t)(4u + ((uint32_t)patch.attack * patch.attack >> 4));   /* 4 .. 1000 blocks */
+        w->env += (1 << 24) / (int32_t)(4u + ((uint32_t)p->attack * p->attack >> 4));   /* 4 .. 1000 blocks */
         if (w->env >= (1 << 24)) { w->env = 1 << 24; w->stage = 2; }
     } else if (w->stage == 2) {                    /* the decay, towards the sustain, at DECAY's pace; at SUSTAIN 0 the voice ends there */
-        int32_t sus = (int32_t)patch.sustain * 132104;   /* 2^24 / 127 */
+        int32_t sus = (int32_t)p->sustain * 132104;   /* 2^24 / 127 */
         if (w->env > sus) {
-            w->env -= (((w->env - sus) >> 9) * env_k(patch.decay)) >> 6;
+            w->env -= (((w->env - sus) >> 9) * env_k(p->decay)) >> 6;
             if (w->env - sus < 2048) w->env = sus;
             if (w->env < 2048) { w->env = 0; w->stage = 0; }
         }
     } else if (w->stage == 3) {                    /* the release, exponential: 60 dB in 0.1 s (0) .. ~30 s (127), log-spaced */
-        w->env -= ((w->env >> 9) * env_k(patch.release)) >> 6;   /* (not mulq15 << 9: that rounds to 0 below 2^15 / k and the tail would hang there for ever) */
+        w->env -= ((w->env >> 9) * env_k(p->release)) >> 6;   /* (not mulq15 << 9: that rounds to 0 below 2^15 / k and the tail would hang there for ever) */
         if (w->env < 2048) { w->env = 0; w->stage = 0; }
     }
     w->active = w->stage != 0;
@@ -270,21 +282,21 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
     {
         for (k = 0; k < NP; k++) {
             int32_t d = (int32_t)(noise32(&w->rng) >> 22) - 512;
-            w->walk[k] += (d * (int32_t)patch.drift) >> 5;
+            w->walk[k] += (d * (int32_t)p->drift) >> 5;
             w->walk[k] = clamp(w->walk[k], -32767, 32767);
             w->walk[k] -= w->walk[k] >> 8;
         }
     }
     {                                              /* WANDER: this voice's own, into the same four destinations */
-        int32_t wv = clamp(mulq15(mulq15(w->wander, patch.src_wander * 258), mv_gain), -32767, 32767), c;
-        tilt16 += (mulq15(wv, patch.to_tilt * 258) * 2047) >> 15;
-        c = (mulq15(wv, patch.to_colour * 258) * 64) >> 15;
+        int32_t wv = clamp(mulq15(mulq15(w->wander, p->src_wander * 258), m_gain), -32767, 32767), c;
+        tilt16 += (mulq15(wv, p->to_tilt * 258) * 2047) >> 15;
+        c = (mulq15(wv, p->to_colour * 258) * 64) >> 15;
         spread -= c; bright -= c;                                                /* (against the global colour) */
-        pitch256 += (mulq15(wv, patch.to_pitch * 258) * 512) >> 15;
+        pitch256 += (mulq15(wv, p->to_pitch * 258) * 512) >> 15;
     }
     tilt16 = clamp(tilt16, 0, 2047); spread = clamp(spread, -64, 63); bright = clamp(bright, 0, 127);
     env_q15 = w->env >> 9;
-    env_q15 = mulq15(env_q15, 32767 - mulq15((int32_t)patch.velo * 258, (127 - (int32_t)w->vel) * 258));   /* VELO: how much a soft note is softer */
+    env_q15 = mulq15(env_q15, 32767 - mulq15((int32_t)p->velo * 258, (127 - (int32_t)w->vel) * 258));   /* VELO: how much a soft note is softer */
     /* each partial's level: 1 / (k + 1) ^ tilt, the odd / even balance, the brightness ceiling, the walk, the bloom */
     for (k = 0; k < NP; k++) {
         int32_t lv = 32767, n = (int32_t)k, j;
@@ -293,7 +305,7 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         if ((int32_t)k * 10 > bright) lv = mulq15(lv, (int32_t)clamp(32767 - ((int32_t)k * 10 - bright) * 400, 0, 32767));   /* BRIGHT: a ceiling */
         lv = mulq15(lv, 32767 + (mulq15(w->walk[k], 16000)));               /* the walk: +-half */
         if (k && swell) lv += mulq15(32767 - lv, mulq15(swell, (int32_t)k * 2700));   /* pressure opens the upper partials */
-        if (patch.bloom && w->t * 4u < (uint32_t)patch.bloom * k) lv = 0;   /* BLOOM: partial k enters bloom x k / 4 blocks in */
+        if (p->bloom && w->t * 4u < (uint32_t)p->bloom * k) lv = 0;   /* BLOOM: partial k enters bloom x k / 4 blocks in */
         if (k >= np_limit) lv = 0;                                           /* the guard: the top partials let go while a block runs long */
         target[k] = mulq15(lv, env_q15) / (int32_t)(2 + (k >> 1));   /* the spectral shape */
         sum += target[k];
@@ -310,13 +322,13 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
          * half the level: every partial shimmers at its own slow rate, and the beats between a chord's notes
          * (a tempered fifth's 785 Hz, once a second) are smeared into it rather than pulsing bare */
         int32_t *odd = osc_acc[core][0], *even = osc_acc[core][1];
-        uint32_t inc0 = pitch_inc256(pitch256), dq = ((uint32_t)patch.detune * 611u) >> 8;   /* the spread, 1/65536 of the pitch */
-        uint32_t stretch_q15 = (uint32_t)patch.stretch * patch.stretch * 4u / 5u;              /* S: 0 .. 0.39 (squared: fine at the low end) */
+        uint32_t inc0 = pitch_inc256(pitch256), dq = ((uint32_t)p->detune * 611u) >> 8;   /* the spread, 1/65536 of the pitch */
+        uint32_t stretch_q15 = (uint32_t)p->stretch * p->stretch * 4u / 5u;              /* S: 0 .. 0.39 (squared: fine at the low end) */
         for (i = 0; i < HALF_FRAMES; i++) odd[i] = even[i] = 0;
         for (k = 0; k < NP; k++) {
             int32_t *o = (k & 1u) ? even : odd, a = from[k] << 8, d = target[k] - from[k];
             uint32_t ph = w->ph[k], inc = inc0 * (k + 1u);
-            if (patch.stretch) inc += (inc >> 16) * ((stretch_q15 * k) >> 1);   /* STRETCH: partial k at (k + 1)(1 + S k): a string's stretch, then a bell's */
+            if (p->stretch) inc += (inc >> 16) * ((stretch_q15 * k) >> 1);   /* STRETCH: partial k at (k + 1)(1 + S k): a string's stretch, then a bell's */
             if ((from[k] < 16 && target[k] < 16) || inc >= 0x80000000u) {   /* silent (under -66 dB at both ends), or past Nyquist: it would fold back */
                 w->ph[k] = ph + inc * HALF_FRAMES;
                 if (k < NPAIR) w->ph2[k] = w->ph2[k] + (inc >> 16) * dq * HALF_FRAMES;
@@ -337,17 +349,17 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
             }
             w->ph[k] = ph;
         }
-        if (patch.sub || w->subamp) {              /* SUB: a sine an octave under the fundamental, at its level x SUB */
-            int32_t a = w->subamp << 8, t = mulq15(target[0], (int32_t)patch.sub * 258), d = t - w->subamp;
+        if (p->sub || w->subamp) {              /* SUB: a sine an octave under the fundamental, at its level x SUB */
+            int32_t a = w->subamp << 8, t = mulq15(target[0], (int32_t)p->sub * 258), d = t - w->subamp;
             uint32_t ph = w->subph, inc = inc0 >> 1;
             for (i = 0; i < HALF_FRAMES; i++) { odd[i] += mulq15(sine_r(ph), a >> 8); a += d; ph += inc; }
             w->subph = ph; w->subamp = t;
         }
-        if (patch.ring || w->ramp) {               /* RING: the pad (and its sub) times a sine at RATIO x the pitch, mixed in by RING:
+        if (p->ring || w->ramp) {               /* RING: the pad (and its sub) times a sine at RATIO x the pitch, mixed in by RING:
                                                     * the gain 1 - a + a sin runs from 1 to 1 - 2a, so at full it is the ring product alone
                                                     * and every partial becomes its sum and difference with the modulator */
-            int32_t a = w->ramp << 8, t = (int32_t)patch.ring * 258, d = t - w->ramp;
-            uint32_t ph = w->rph, inc = (inc0 >> 8) * (exp2_q15((uint32_t)patch.ratio * 32u) >> 8);   /* 2^(RATIO / 32 - 1): 0.5 .. 7.9 x, Q8 */
+            int32_t a = w->ramp << 8, t = (int32_t)p->ring * 258, d = t - w->ramp;
+            uint32_t ph = w->rph, inc = (inc0 >> 8) * (exp2_q15((uint32_t)p->ratio * 32u) >> 8);   /* 2^(RATIO / 32 - 1): 0.5 .. 7.9 x, Q8 */
             for (i = 0; i < HALF_FRAMES; i++) {   /* the gain in Q14: the ring product x 1.414, so the level at full RING matches dry (a sine's rms) */
                 int32_t a14 = a >> 9, g = 16384 - a14 + mulq15(a14, (sine_r(ph) * 23170) >> 14);
                 odd[i] = (odd[i] * g) >> 14; even[i] = (even[i] * g) >> 14;
@@ -358,16 +370,16 @@ static void voice_block(voice_t *w, int32_t *outl, int32_t *outr, uint32_t core)
         /* the swarm: NSW saws a little apart (SPREAD, up to +-50 cents, each wandering by DRIFT), through a low-pass
          * that tracks the note, opened by CUTOFF, darkened by TILT, bent by the movement's colour and pressure;
          * the saws alternate between the left-leaning and right-leaning sums, each with its own filter */
-        if (patch.sw_level) {
-            int32_t lvl = mulq15(env_q15, patch.sw_level * 258), a = w->samp << 8, d = lvl - w->samp;
-            int32_t cut16 = (int32_t)w->note * 16 + ((int32_t)patch.sw_cut - 32) * 16 - ((int32_t)patch.tilt - 64) * 8 + mv_spread * 4 + mulq15(swell, 48 * 16);
+        if (p->sw_level) {
+            int32_t lvl = mulq15(env_q15, p->sw_level * 258), a = w->samp << 8, d = lvl - w->samp;
+            int32_t cut16 = (int32_t)w->note * 16 + ((int32_t)p->sw_cut - 32) * 16 - ((int32_t)p->tilt - 64) * 8 + mv_spread * 4 + mulq15(swell, 48 * 16);
             svf_t c;
             uint32_t sinc[NSW];
             int32_t *sl = osc_acc[core][0], *sr = osc_acc[core][1];
-            svf_coef(&c, cut16, SVF_K(patch.sw_res));
+            svf_coef(&c, cut16, SVF_K(p->sw_res));
             for (k = 0; k < NSW; k++) {
                 random_lfo(&w->sdrift[k], &w->sdtarget[k], &w->rng);
-                sinc[k] = pitch_inc256(pitch256 + ((int32_t)k - 2) * (int32_t)patch.sw_spread / 2 + ((mulq15(w->sdrift[k], patch.drift * 258) * 16) >> 15));
+                sinc[k] = pitch_inc256(pitch256 + ((int32_t)k - 2) * (int32_t)p->sw_spread / 2 + ((mulq15(w->sdrift[k], p->drift * 258) * 16) >> 15));
             }
             w->samp = lvl;
             {   /* the five saws written out, their phases and steps in registers: a loop over them cost as much again
@@ -669,21 +681,22 @@ static void voice_on(uint32_t note, uint32_t vel)
 {
     uint32_t v, pick = 0, best = 0xFFFFFFFFu, held = 0;
     if (note > 127u) return;
-    for (v = 0; v < NV; v++) if (voices[v].gate) held++;
+    for (v = 0; v < NV; v++) if (voices[v].gate && !voices[v].hold) held++;   /* (a voice held through a cut is another layer: not counted, and the last to give way) */
     for (v = 0; v < NV; v++) {
         voice_t *w = &voices[v];
-        uint32_t score = w->note == note && w->gate ? 0u : w->gate ? 0xC0000000u + w->age : w->active ? 0x80000000u + w->age : w->age;
+        uint32_t score = w->note == note && w->gate && !w->hold ? 0u : w->gate ? (w->hold ? 0xE0000000u : 0xC0000000u) + w->age : w->active ? 0x80000000u + w->age : w->age;
         if (score < best) { best = score; pick = v; }
     }
-    if (held >= (patch.voices ? patch.voices : NV) && !(voices[pick].gate && voices[pick].note == note)) {   /* VOICES: at the count, the oldest held note gives way (mono: every note) */
+    if (held >= (patch.voices ? patch.voices : NV) && !(voices[pick].gate && !voices[pick].hold && voices[pick].note == note)) {   /* VOICES: at the count, the oldest held note gives way (mono: every note) */
         best = 0xFFFFFFFFu;
-        for (v = 0; v < NV; v++) if (voices[v].gate && voices[v].age < best) { best = voices[v].age; pick = v; }
+        for (v = 0; v < NV; v++) if (voices[v].gate && !voices[v].hold && voices[v].age < best) { best = voices[v].age; pick = v; }
     }
     voices[pick].note = (uint8_t)note;
     voices[pick].vel = (uint8_t)(vel > 127u ? 127u : vel);
     voices[pick].age = ++voice_ages;
     voices[pick].gate = 1;
     voices[pick].at = 0;
+    voices[pick].hold = 0; voices[pick].drone = 0;
     voices[pick].gl = held && patch.glide ? ((int32_t)last_note - (int32_t)note) * 256 : 0;   /* GLIDE: a note over a held one slides in from the last */
     last_note = note;
     air_kick += (int32_t)vel * 48;
@@ -693,8 +706,18 @@ static void voice_off(uint32_t note)
 {
     uint32_t v;
     for (v = 0; v < NV; v++)
-        if (voices[v].note == note && voices[v].gate) voices[v].gate = 0;
+        if (voices[v].note == note && voices[v].gate && !voices[v].drone) voices[v].gate = 0;   /* (a drone is let go by PLAY, not by its key) */
 }
+#ifdef DINGHY_HOST
+static void voices_print(void)                   /* HOST_VOICES=1 (tests/host.c): each voice sounding as note, + gated / - released, its stage; H held through a cut, D a drone; then the latch */
+{
+    uint32_t v;
+    for (v = 0; v < NV; v++) if (voices[v].active || voices[v].gate) printf("  %u%c%u%s%s", voices[v].note, voices[v].gate ? '+' : '-', voices[v].stage, voices[v].hold ? "H" : "", voices[v].drone ? "D" : "");
+    printf("   latch %u", set.latch);
+}
+#endif
+static uint32_t drones(void) { uint32_t v, n = 0; for (v = 0; v < NV; v++) n += voices[v].drone; return n; }
+static void drones_off(void) { uint32_t v; for (v = 0; v < NV; v++) if (voices[v].drone) { voices[v].drone = 0; voices[v].gate = 0; } }
 static void voices_pressure(uint32_t note, uint32_t p)   /* a held note's own pressure (a key, or poly aftertouch) */
 {
     uint32_t v;
@@ -1697,6 +1720,22 @@ static void release_all(void)
     ndown = 0;
     for (n = 0; n < 128u; n++)
         if (sus_held[n >> 3] >> (n & 7u) & 1u) { sus_held[n >> 3] &= (uint8_t)~(1u << (n & 7u)); voice_off(n); }
+    drones_off();
+}
+/* a cut (SEL, a preset picked, a program change): a note keeps the sound it was played with. Every voice sounding
+ * takes a copy of the sound as it stands and plays on from that; the knobs, the morph and the next notes are the new
+ * sound. A latched note becomes a drone: its key is forgotten (so the same key plays the new sound) and the latch
+ * comes off, so what you play next plays free. PLAY lets the drones go. (ARP's morph is no cut: everything goes along.) */
+static void scene_cut(void)
+{
+    uint32_t v, any = 0;
+    for (v = 0; v < NV; v++) {
+        voice_t *w = &voices[v];
+        if (!w->active && !w->gate) continue;
+        if (!w->hold) { w->snap = patch; w->hold = 1; }
+        if (w->gate && (sus_held[w->note >> 3] >> (w->note & 7u) & 1u)) { w->drone = 1; any = 1; }
+    }
+    if (any) { uint32_t n; for (n = 0; n < sizeof sus_held; n++) sus_held[n] = 0; if (set.latch) { set.latch = 0; changed(); } }
 }
 static void app_init(void)
 {
@@ -1795,21 +1834,24 @@ static void app_loop(void)
         page_drawn = ~0u;
     } else if (save_mode && (b & (1u << BTN_GLO))) { patch_send(); sent_ms = fm1_ms; save_mode = 0; page_drawn = ~0u; }   /* SAVE, GLO: the sound out over USB MIDI, to share */
     else if (save_mode && (b & ~(1u << BTN_SAVE))) { save_mode = 0; page_drawn = ~0u; }   /* any other button: not saving */
-    if (b & (1u << BTN_SEL)) { morph_to = morph_to ? 0 : 32767; morph = morph_to; live_update(); page_drawn = ~0u; }   /* SEL: cut to the other scene */
+    if (b & (1u << BTN_SEL)) { scene_cut(); morph_to = morph_to ? 0 : 32767; morph = morph_to; live_update(); page_drawn = ~0u; }   /* SEL: cut to the other scene (what sounds keeps its sound) */
     {   /* ARP: let go without turning PRESETS while held: morph to the other scene; turned: B was picked instead */
         uint32_t arp = fm1_in.buttons >> BTN_ARP & 1u;
         if (arp_was && !arp && !arp_turned) { morph_to = morph_to ? 0 : 32767; page_drawn = ~0u; }
         if (!arp) arp_turned = 0;
         arp_was = arp;
     }
-    if (b & (1u << BTN_PLAY)) { set.latch ^= 1u; if (!set.latch && !sustain) release_all(); changed(); }   /* LATCH: a drone with no hands */
+    if (b & (1u << BTN_PLAY)) {                                            /* LATCH: a drone with no hands; lit while anything is held by it, and then it lets everything go */
+        if (set.latch || drones()) { set.latch = 0; drones_off(); if (!sustain) release_all(); } else set.latch = 1;
+        changed();
+    }
     if ((b & (1u << BTN_OCT_DOWN) && fm1_in.buttons >> BTN_OCT_UP & 1u) || (b & (1u << BTN_OCT_UP) && fm1_in.buttons >> BTN_OCT_DOWN & 1u)) {
         sustain = 0; release_all(); for (k = 0; k < 128u; k++) voice_off(k);
     }
     if ((n = fm1_enc_take(ENC_PRESETS)) != 0) {                         /* PRESETS: the presets, on any page; a slot while saving; B while ARP is held */
         if (save_mode) save_slot = (uint8_t)(((int32_t)save_slot + n + (int32_t)NUSER * 4) % (int32_t)NUSER);
-        else if (fm1_in.buttons >> BTN_ARP & 1u) { set.scene_b = (uint8_t)(((int32_t)set.scene_b + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.scene_b, &set.patch_b); arp_turned = 1; changed(); live_update(); }
-        else { set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); }
+        else if (fm1_in.buttons >> BTN_ARP & 1u) { if (morph_to) scene_cut(); set.scene_b = (uint8_t)(((int32_t)set.scene_b + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.scene_b, &set.patch_b); arp_turned = 1; changed(); live_update(); }
+        else { scene_cut(); set.preset = (uint8_t)(((int32_t)set.preset + n + (int32_t)NALL * 4) % (int32_t)NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); }
         page_drawn = ~0u;
     }
     if ((n = fm1_enc_take(ENC_SELECT)) != 0) press = (uint8_t)clamp((int32_t)press + n * 4, 0, 127);   /* SELECT: the pressure, with no hands to press: the swell */
@@ -1840,7 +1882,7 @@ static void app_loop(void)
         else if (m == 0x80u || m == 0x90u) note_off(d1);
         else if (m == 0xD0u) press = d1;
         else if (m == 0xA0u) voices_pressure(d1, d2);
-        else if (m == 0xC0u) { set.preset = (uint8_t)(d1 % NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); page_drawn = ~0u; }
+        else if (m == 0xC0u) { scene_cut(); set.preset = (uint8_t)(d1 % NALL); preset_build(set.preset, &set.patch); morph = morph_to = 0; patch = set.patch; changed(); page_drawn = ~0u; }
         else if (m == 0xE0u) bend256 = (((int32_t)d2 << 7 | d1) - 8192) >> 4;
         else if (m == 0xB0u) {
             if (set.expr && d1 == set.expr) { press = d2; continue; }
@@ -1876,7 +1918,7 @@ static void app_loop(void)
     fm1_led_key(BTN_OCT_DOWN, oct() < 0); fm1_led_key(BTN_OCT_UP, oct() > 0);
     fm1_led_key(BTN_HOME, page == PG_HOME); fm1_led_key(BTN_EDIT, page >= PG_TONE && page <= PG_AIR); fm1_led_key(BTN_ENV, page == PG_SHAPE || page == PG_TOUCH);
     fm1_led_key(BTN_LFO, page >= PG_MOVE && page <= PG_DST); fm1_led_key(BTN_FX, page >= PG_SPACE && page <= PG_BUS); fm1_led_key(BTN_GLO, page == PG_MIDI);
-    fm1_led_key(BTN_PLAY, set.latch); fm1_led_key(BTN_REC, fm1_in.buttons >> BTN_REC & 1u); fm1_led_key(BTN_SEQ, autopilot); fm1_led_key(BTN_ARP, morph_to != 0); fm1_led_key(BTN_SEL, morph >= 16384); fm1_led_key(BTN_SAVE, save_mode);
+    fm1_led_key(BTN_PLAY, set.latch || drones()); fm1_led_key(BTN_REC, fm1_in.buttons >> BTN_REC & 1u); fm1_led_key(BTN_SEQ, autopilot); fm1_led_key(BTN_ARP, morph_to != 0); fm1_led_key(BTN_SEL, morph >= 16384); fm1_led_key(BTN_SAVE, save_mode);
     {
         static int32_t load_acc, wload_acc;
         int32_t l = (int32_t)(audio_cycles / (HALF_FRAMES * 10u * FM1_TICKS_PER_US / (FS / 1000u) + 1u));
