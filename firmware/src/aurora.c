@@ -490,51 +490,62 @@ static void air_block(int32_t *st, uint32_t n)
     }
 }
 /* ---- the output bus, the rig's rather than the sound's: two one-pole shelves, LOW about 120 Hz and HIGH about 4 kHz,
- * +-12 dB; then a limiter. The peak of every sixteen frames is taken a chunk ahead of the sound (a sixteen-frame line,
- * 0.36 ms) and held a chunk, so the gain is down before the peak arrives and never above what the last chunk needed:
- * the output stays under BUS_CEIL (-2 dBFS, just past the knee, which then only rounds it) with the ramp between
- * chunks linear, a sample at a time. LIMIT lowers the threshold below the ceiling, to -18 dB at full, and makes the
- * same up, so the knob goes from catching the odd peak to a wall; RELEAS 30 ms .. 3 s. At LIMIT 0 the gain is one
- * and the shelves at 64 add nothing: the sound as it was, sixteen frames later. */
+ * +-12 dB, their gains sliding across the block when a knob moves; then a limiter. The peak of every sixteen frames
+ * is taken BUS_LA chunks ahead of the sound (a line of 128 frames, 2.9 ms): the gain allowed at the end of each of the
+ * chunks until that one comes out is lowered to a straight ramp from where the gain is now down to what the peak needs,
+ * and held there through the chunk itself, so the gain is down before the peak arrives, never snaps at it, and is
+ * never above what the chunk coming out needs: the output stays under BUS_CEIL (-2 dBFS, just past the knee, which
+ * then only rounds it), the ramp inside a chunk linear, a sample at a time. LIMIT lowers the threshold below the
+ * ceiling, to -18 dB at full, and makes the same up, so the knob goes from catching the odd peak to a wall; RELEAS
+ * 30 ms .. 3 s. At LIMIT 0 the gain is one and the shelves at 64 add nothing: the sound as it was, 128 frames later. */
 #define BUS_C 16u
+#define BUS_LA 8u                                   /* chunks of lookahead: the attack */
 #define BUS_CEIL 26000
-typedef char bus_chunk_check[HALF_FRAMES % BUS_C == 0u && (BUS_C & (BUS_C - 1u)) == 0u ? 1 : -1];
+typedef char bus_chunk_check[HALF_FRAMES % BUS_C == 0u && (BUS_C & (BUS_C - 1u)) == 0u && BUS_LA == 8u && HALF_FRAMES == 256u ? 1 : -1];   /* (the shifts below) */
 static int32_t bus_lp[2][2];                        /* the shelves' one-poles: [low, high][side] */
-static int32_t bus_dl[2u * BUS_C];                  /* the lookahead line, L R ... */
+static int32_t bus_gl, bus_gh;                      /* the shelves' gains as last applied (Q10): the next block slides from them */
+static int32_t bus_dl[2u * BUS_C * BUS_LA];         /* the lookahead line, L R ... */
 static uint32_t bus_dw;
-static int32_t bus_env, bus_pk1, bus_g = 4096;      /* the peak held, the chunk before's, the gain now (Q12) */
+static int32_t bus_env, bus_g = 4096;               /* the peak held, falling by RELEAS; the gain now (Q12) */
+static int32_t bus_req[BUS_LA + 1u] = {4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096};   /* the gain allowed at the end of this chunk and of each after, as far as the line reaches */
 static volatile int32_t bus_gr = 4096, bus_mk = 4096;   /* the gain at the last chunk's end and the make-up: the page's meter */
 static void bus_block(int32_t *st, uint32_t n)
 {
-    int32_t gl = (int32_t)(exp2_q15((uint32_t)set.bus_low * 32u) >> 7) - 1024;    /* 2^(dB / 6) - 1 in Q10: -0.75 .. +2.91 (-12 .. +11.8 dB) */
-    int32_t gh = (int32_t)(exp2_q15((uint32_t)set.bus_high * 32u) >> 7) - 1024;
+    int32_t tl = (int32_t)(exp2_q15((uint32_t)set.bus_low * 32u) >> 7) - 1024;    /* 2^(dB / 6) - 1 in Q10: -0.75 .. +2.91 (-12 .. +11.8 dB) */
+    int32_t th = (int32_t)(exp2_q15((uint32_t)set.bus_high * 32u) >> 7) - 1024;
+    int32_t gl0 = bus_gl, gh0 = bus_gh, dgl = tl - gl0, dgh = th - gh0;
     int32_t lim = set.bus_limit, thr = BUS_CEIL, mk = 4096, dec, i, c;
-    uint32_t tau = (1323u * exp2_q15((uint32_t)set.bus_rel * 54u)) >> 15;          /* the release in frames: 30 ms .. 3 s, log */
+    uint32_t tau = (1323u * (exp2_q15((uint32_t)set.bus_rel * 54u) >> 4)) >> 11;   /* the release in frames: 30 ms .. 3 s, log (the product kept under 2^32) */
     if (lim) { thr = (int32_t)((3250u * exp2_q15(3072u - (uint32_t)lim * 24u)) >> 15); mk = (BUS_CEIL << 12) / thr; }
     dec = (int32_t)(524288u / tau);                                                  /* the envelope's fall a chunk, Q15 */
-    bus_mk = mk;
-    for (i = 0; i < 2 * (int32_t)n; i++) {         /* the shelves: the sound clamped at twice full scale first (the knee would crush it anyway), so the sums fit */
-        int32_t x = clamp(st[i], -65535, 65535), s = i & 1;
-        bus_lp[0][s] += ((x - bus_lp[0][s]) * 555) >> 15;                           /* 120 Hz */
-        x += (bus_lp[0][s] * gl) >> 10;
-        bus_lp[1][s] += ((x - bus_lp[1][s]) * 1779) >> 12;                          /* 4 kHz */
-        st[i] = x + ((x - bus_lp[1][s]) * gh >> 10);
+    bus_mk = mk; bus_gl = tl; bus_gh = th;
+    for (i = 0; i < (int32_t)n; i++) {             /* the shelves: the sound clamped at twice full scale first (the knee would crush it anyway), so the sums fit */
+        int32_t gl = gl0 + ((dgl * i) >> 8), gh = gh0 + ((dgh * i) >> 8), s;
+        for (s = 0; s < 2; s++) {
+            int32_t x = clamp(st[2 * i + s], -65535, 65535);
+            bus_lp[0][s] += ((x - bus_lp[0][s]) * 555) >> 15;                       /* 120 Hz */
+            x += (bus_lp[0][s] * gl) >> 10;
+            bus_lp[1][s] += ((x - bus_lp[1][s]) * 1779) >> 12;                      /* 4 kHz */
+            st[2 * i + s] = x + ((x - bus_lp[1][s]) * gh >> 10);
+        }
     }
     for (c = 0; c < (int32_t)n; c += (int32_t)BUS_C) {
-        int32_t pk = 0, tgt, g0 = bus_g, d;
+        int32_t pk = 0, r, g0 = bus_g, d, k;
         for (i = 2 * c; i < 2 * (c + (int32_t)BUS_C); i++) { int32_t a = st[i] < 0 ? -st[i] : st[i]; if (a > pk) pk = a; }
         d = (bus_env * dec) >> 15; bus_env -= d > 1 ? d : 1; if (bus_env < 0) bus_env = 0;   /* (a step at least: the tail reaches the floor) */
         if (pk > bus_env) bus_env = pk;
-        if (bus_pk1 > bus_env) bus_env = bus_pk1;   /* held a chunk: the gain ramping now is for the chunk before */
-        bus_pk1 = pk;
-        tgt = lim && bus_env > thr ? (BUS_CEIL << 12) / bus_env : mk;
-        d = tgt - g0;
+        r = lim && bus_env > thr ? (BUS_CEIL << 12) / bus_env : mk;                 /* what this chunk needs when it comes out, BUS_LA chunks from now */
+        for (k = 0; k < (int32_t)BUS_LA; k++) { int32_t want = g0 + (((r - g0) * (k + 1)) >> 3); if (want < bus_req[k]) bus_req[k] = want; }   /* the ramp down to it (k = 7: r itself) */
+        if (r < bus_req[BUS_LA]) bus_req[BUS_LA] = r;                               /* and held through the chunk */
+        d = bus_req[0] - g0;
         for (i = 0; i < (int32_t)BUS_C; i++) {
             int32_t j = 2 * (c + i), dl = bus_dl[2u * bus_dw], dr = bus_dl[2u * bus_dw + 1u];
             bus_g = g0 + ((d * (i + 1)) >> 4);                                      /* lands on the target exactly, never past it */
-            bus_dl[2u * bus_dw] = st[j]; bus_dl[2u * bus_dw + 1u] = st[j + 1]; bus_dw = (bus_dw + 1u) & (BUS_C - 1u);
+            bus_dl[2u * bus_dw] = st[j]; bus_dl[2u * bus_dw + 1u] = st[j + 1]; bus_dw = (bus_dw + 1u) & (BUS_C * BUS_LA - 1u);
             st[j] = (dl * bus_g) >> 12; st[j + 1] = (dr * bus_g) >> 12;
         }
+        for (k = 0; k < (int32_t)BUS_LA; k++) bus_req[k] = bus_req[k + 1];
+        bus_req[BUS_LA] = mk;                                                        /* the far end: free until a chunk claims it */
     }
     bus_gr = bus_g;
 }

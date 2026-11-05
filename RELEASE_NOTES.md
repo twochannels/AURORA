@@ -1,13 +1,15 @@
-# AURORA 0.8.0
+# AURORA 0.8.1
 
 Epic film sounds for the M-VAVE FM-1: a bus on the way out, the horns, the keys playing with their own velocity and
 pressure, and the delay following the clock. Everything since 0.6.0.
 
 **The bus.** A fourth page under FX, after everything else: LOW and HIGH shelves (about 120 Hz and 4 kHz, 12 dB
 either way) and a limiter. LIMIT at 0 is off; turning it up brings the level it holds down from -2 dBFS to -20 and
-makes the same up underneath, so a little catches the odd peak and a lot is a wall. It looks a third of a
-millisecond ahead, so nothing gets past it, and RELEAS sets how fast it lets go, 30 ms to 3 s; the page shows how
-far it is holding the sound down. The bus is the rig's, not the sound's: it stays through every preset and is not
+makes the same up underneath, so a little catches the odd peak and a lot is a wall. It looks three milliseconds
+ahead, so the gain is down before a peak arrives rather than snapping at it, and nothing gets past it; RELEAS sets
+how fast it lets go, 30 ms to 3 s; the page shows how far it is holding the sound down. (0.8.0's looked only a
+third of a millisecond ahead and snapped at every swell of a pad: crackles and pops. 0.8.1 fixes that, the top two
+steps of RELEAS, and the shelves stepping when turned.) The bus adds three milliseconds on the way out. The bus is the rig's, not the sound's: it stays through every preset and is not
 part of a sent sound. At its defaults the output is exactly what it was. (The settings grow by four bytes; your
 sound, scene B and MIDI settings carry over.)
 
