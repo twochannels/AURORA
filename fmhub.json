@@ -1,5 +1,9 @@
 {
-  "what": "An ambient instrument: a spectral pad that drifts, a swarm, wind, a plate with a shimmer, a tape delay and a freeze, with a screen where every page is a picture the four knobs shift and HOME is an aurora bent by the sound. A sound module for a dawless rig, with the Circuit Tracks' eight macros as eight named controls.",
-  "kinds": ["synth"],
-  "play": "https://twochannels.github.io/AURORA/emu/"
+  "what": "Epic film sounds for the FM-1: a spectral pad that drifts, a swarm, wind, ring-modulated horns, a shimmer plate, tape delay and freeze. Latch a chord in one sound and play a lead over it in another. Every page is a picture the four knobs shape, with the Circuit Tracks' eight macros.",
+  "author": "twochannels",
+  "kinds": [
+    "synth"
+  ],
+  "play": "https://twochannels.github.io/AURORA/emu/",
+  "image": "web/site/img/hub.png"
 }

@@ -1,7 +1,11 @@
-# AURORA 0.9.0
+# AURORA 0.9.1
 
-Epic film sounds for the M-VAVE FM-1: a drone under another sound, a bus on the way out, the horns, the keys playing with their own velocity and
+Epic film sounds for the M-VAVE FM-1: newer FM-1s, a drone under another sound, a bus on the way out, the horns, the keys playing with their own velocity and
 pressure, and the delay following the clock. Everything since 0.6.0.
+
+**Newer FM-1s.** Units sold since autumn 2026 have a different flash chip (the UC25HQ80, where the first units have
+a Puya P25Q80). AURORA took it for unknown: its update loader refused to install, so those units could not run it at
+all. The loader, the firmware and the recovery screen now accept both chips. Nothing changes on the first units.
 
 **A drone under another sound.** A note keeps the sound it was played with. A cut (SEL, a turn of PRESETS, a
 program change) leaves every note that is sounding as it was, release tails included, and only what you play next
